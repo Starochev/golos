@@ -25,6 +25,8 @@ struct Config: Codable {
     var sounds: Bool = true
     /// Какой набор тонов играть: см. Sounds.themes.
     var soundTheme: String = Sounds.defaultThemeID
+    /// Показывать ли окошко с живой волной во время записи.
+    var showHUD: Bool = true
     /// Хранить ли wav и расшифровку в ~/Documents/Golos/history.
     var keepHistory: Bool = true
     /// Через сколько часов удалять записи. 0 — не удалять никогда.
@@ -73,6 +75,7 @@ struct Config: Codable {
         threads = try c.decodeIfPresent(Int.self, forKey: .threads) ?? fallback.threads
         sounds = try c.decodeIfPresent(Bool.self, forKey: .sounds) ?? fallback.sounds
         soundTheme = try c.decodeIfPresent(String.self, forKey: .soundTheme) ?? fallback.soundTheme
+        showHUD = try c.decodeIfPresent(Bool.self, forKey: .showHUD) ?? fallback.showHUD
         keepHistory = try c.decodeIfPresent(Bool.self, forKey: .keepHistory) ?? fallback.keepHistory
         historyRetentionHours = try c.decodeIfPresent(Int.self, forKey: .historyRetentionHours)
             ?? fallback.historyRetentionHours

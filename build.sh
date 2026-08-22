@@ -25,6 +25,11 @@ cp .build/release/Golos "$APP/Contents/MacOS/Golos"
 cp vendor/whisper-server "$APP/Contents/Helpers/whisper-server"
 cp vendor/whisper.cpp-LICENSE "$APP/Contents/Resources/whisper.cpp-LICENSE"
 
+# Иконка. Пересобрать после правки рисунка: ./icon/build-icon.sh
+if [ -f icon/AppIcon.icns ]; then
+    cp icon/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
+fi
+
 # Sparkle SwiftPM не встраивает сам — копируем и указываем, где её искать.
 cp -R .build/release/Sparkle.framework "$APP/Contents/Frameworks/"
 install_name_tool -add_rpath "@executable_path/../Frameworks" \
@@ -39,6 +44,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>CFBundleDisplayName</key><string>Голос</string>
     <key>CFBundleIdentifier</key><string>local.golos</string>
     <key>CFBundleExecutable</key><string>Golos</string>
+    <key>CFBundleIconFile</key><string>AppIcon</string>
+    <key>CFBundleIconName</key><string>AppIcon</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleShortVersionString</key><string>${VERSION}</string>
     <key>CFBundleVersion</key><string>${BUILD}</string>

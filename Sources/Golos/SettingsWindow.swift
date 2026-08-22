@@ -100,6 +100,12 @@ private struct GeneralTab: View {
                         .font(.system(size: 11))
                         .foregroundStyle(.red)
                 }
+                Toggle("Показывать волну во время записи", isOn: $store.config.showHUD)
+                Text("Небольшое окошко внизу экрана с живой формой волны. Фокус не перехватывает — вставка в активное поле работает как обычно.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
                 Toggle("Звук при начале и конце записи", isOn: $store.config.sounds)
 
                 if store.config.sounds {

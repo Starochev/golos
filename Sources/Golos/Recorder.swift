@@ -80,13 +80,23 @@ final class Recorder {
         return Double(samples.count) / 16000.0
     }
 
-    /// Текущая громкость 0…1 по последним сэмплам — для анимации иконки.
+    /// Текущая громкость 0…1 по последним сэмплам — для живой волны.
+    ///
+    /// Шкала логарифмическая: линейная даёт почти плоскую линию, потому что
+    /// речь по амплитуде занимает крошечную часть диапазона, а ухо и глаз
+    /// воспринимают громкость в децибелах.
     var level: Float {
         lock.lock(); defer { lock.unlock() }
         let tail = samples.suffix(1600)
         guard !tail.isEmpty else { return 0 }
         let rms = sqrt(tail.reduce(0) { $0 + $1 * $1 } / Float(tail.count))
-        return min(1, rms * 12)
+        guard rms > 1e-6 else { return 0 }
+
+        // −60 дБ — комнатная тишина, −10 дБ — громкая речь вплотную.
+        // Диапазон шире, чем кажется нужным: иначе обычная речь упирается
+        // в потолок и волна превращается в сплошную стену.
+        let db = 20 * log10(rms)
+        return min(1, max(0, (db + 60) / 50))
     }
 
     private func append(_ buffer: AVAudioPCMBuffer, from inputFormat: AVAudioFormat) {

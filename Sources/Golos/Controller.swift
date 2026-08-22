@@ -24,6 +24,7 @@ final class Controller {
 
     private var config = Config.load()
     private let recorder = Recorder()
+    private let hud = RecorderHUD()
     private let hotkey = Hotkey()
     private var whisper: Whisper
 
@@ -238,6 +239,9 @@ final class Controller {
             try recorder.start()
             state = .recording
             play(.start)
+            if config.showHUD {
+                hud.show { [weak self] in self?.recorder.level ?? 0 }
+            }
         } catch {
             state = .failed(error.localizedDescription)
         }
@@ -248,20 +252,24 @@ final class Controller {
         let wav = recorder.stop()
 
         if discard {
+            hud.hide()
             state = .idle
             return
         }
         guard let wav else {
             // Слишком короткий фрагмент — молча возвращаемся в покой.
+            hud.hide()
             state = .idle
             return
         }
 
         play(.stop)
+        hud.markTranscribing()
         state = .transcribing
 
         whisper.transcribe(wav: wav, prompt: config.promptString) { [weak self] result in
             guard let self else { return }
+            self.hud.hide()
             switch result {
             case .success(let raw):
                 let text = self.config.applyReplacements(to: raw)
