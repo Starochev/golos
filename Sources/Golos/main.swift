@@ -9,7 +9,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var signalSources: [DispatchSourceSignal] = []
     private let updater = Updater()
     private var toggleItem: NSMenuItem!
-    private var autostartItem: NSMenuItem!
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         buildStatusItem()
@@ -18,6 +17,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.render(state)
         }
         installSignalHandlers()
+        controller.onCheckUpdates = { [weak self] in self?.updater.checkNowBringingToFront() }
         controller.start()
         render(controller.state)
     }
@@ -69,30 +69,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         menu.addItem(.separator())
 
-        let modelItem = NSMenuItem(title: "Модель распознавания…",
-                                   action: #selector(openModelPicker), keyEquivalent: "")
-        modelItem.target = self
-        menu.addItem(modelItem)
-
-        let configItem = NSMenuItem(title: "Словарь и настройки…",
-                                    action: #selector(openConfig), keyEquivalent: "")
-        configItem.target = self
-        menu.addItem(configItem)
-
-        let historyItem = NSMenuItem(title: "Папка истории",
-                                     action: #selector(openHistory), keyEquivalent: "")
-        historyItem.target = self
-        menu.addItem(historyItem)
-
-        let reloadItem = NSMenuItem(title: "Перезапустить распознавание",
-                                    action: #selector(reload), keyEquivalent: "")
-        reloadItem.target = self
-        menu.addItem(reloadItem)
-
-        autostartItem = NSMenuItem(title: "Запускать при входе",
-                                   action: #selector(toggleAutostart), keyEquivalent: "")
-        autostartItem.target = self
-        menu.addItem(autostartItem)
+        let settingsItem = NSMenuItem(title: "Настройки…",
+                                      action: #selector(openSettings), keyEquivalent: ",")
+        settingsItem.target = self
+        menu.addItem(settingsItem)
 
         menu.addItem(.separator())
 
@@ -106,15 +86,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(quitItem)
 
         statusItem.menu = menu
-        menu.delegate = self
-        refreshAutostartItem()
-    }
-
-    private func refreshAutostartItem() {
-        autostartItem.state = Autostart.isEnabled ? .on : .off
-        autostartItem.title = Autostart.blockedBySystem
-            ? "Запускать при входе (запрещено в настройках)"
-            : "Запускать при входе"
     }
 
     private func render(_ state: Controller.State) {
@@ -163,37 +134,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func toggleRecording() { controller.toggleFromMenu() }
     @objc private func copyLast() { controller.copyLastAgain() }
-    @objc private func reload() { controller.reload() }
 
-    @objc private func openConfig() {
-        _ = Config.load()   // создаст файл, если его ещё нет
-        NSWorkspace.shared.open(Config.fileURL)
-    }
-
-    @objc private func openHistory() {
-        let dir = Config.directory.appendingPathComponent("history")
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        NSWorkspace.shared.open(dir)
-    }
-
-    @objc private func openModelPicker() { controller.showModelPicker() }
+    @objc private func openSettings() { controller.showSettings() }
 
     @objc private func checkForUpdates() { updater.checkNowBringingToFront() }
 
-    @objc private func toggleAutostart() {
-        if let error = Autostart.set(!Autostart.isEnabled) {
-            statusLine.title = "Автозапуск: \(error)"
-        }
-        refreshAutostartItem()
-    }
-
     @objc private func quit() { NSApp.terminate(nil) }
-}
-
-extension AppDelegate: NSMenuDelegate {
-    func menuWillOpen(_ menu: NSMenu) {
-        refreshAutostartItem()
-    }
 }
 
 private extension NSImage {

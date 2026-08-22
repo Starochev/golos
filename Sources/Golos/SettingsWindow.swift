@@ -1,0 +1,370 @@
+import AppKit
+import SwiftUI
+
+/// Окно настроек с вкладками. Открывается из меню.
+@MainActor
+final class SettingsWindow {
+    private var window: NSWindow?
+    private let store: SettingsStore
+    private let onOpenModelPicker: () -> Void
+    private let onCheckUpdates: () -> Void
+
+    init(store: SettingsStore,
+         onOpenModelPicker: @escaping () -> Void,
+         onCheckUpdates: @escaping () -> Void) {
+        self.store = store
+        self.onOpenModelPicker = onOpenModelPicker
+        self.onCheckUpdates = onCheckUpdates
+    }
+
+    func show() {
+        // Файл могли править руками, пока окно было закрыто.
+        store.reloadFromDisk()
+
+        if let window {
+            window.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+
+        let view = SettingsView(store: store,
+                                onOpenModelPicker: onOpenModelPicker,
+                                onCheckUpdates: onCheckUpdates)
+        let hosting = NSHostingController(rootView: view)
+        let window = NSWindow(contentViewController: hosting)
+        window.title = "Настройки Голоса"
+        window.styleMask = [.titled, .closable]
+        window.setContentSize(NSSize(width: 620, height: 580))
+        window.center()
+        window.isReleasedWhenClosed = false
+        window.delegate = WindowCloser.shared
+        WindowCloser.shared.onClose = { [weak self] in self?.store.flush() }
+        self.window = window
+
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+}
+
+/// Записываем настройки на диск при закрытии окна, не дожидаясь задержки.
+private final class WindowCloser: NSObject, NSWindowDelegate {
+    static let shared = WindowCloser()
+    var onClose: (() -> Void)?
+    func windowWillClose(_ notification: Notification) { onClose?() }
+}
+
+private struct SettingsView: View {
+    @ObservedObject var store: SettingsStore
+    let onOpenModelPicker: () -> Void
+    let onCheckUpdates: () -> Void
+
+    var body: some View {
+        TabView {
+            GeneralTab(store: store, onOpenModelPicker: onOpenModelPicker)
+                .tabItem { Label("Основное", systemImage: "gearshape") }
+
+            VocabularyTab(store: store)
+                .tabItem { Label("Словарь", systemImage: "text.book.closed") }
+
+            ReplacementsTab(store: store)
+                .tabItem { Label("Замены", systemImage: "arrow.left.arrow.right") }
+
+            AboutTab(onCheckUpdates: onCheckUpdates)
+                .tabItem { Label("О программе", systemImage: "info.circle") }
+        }
+        .padding(14)
+        .frame(width: 620, height: 580)
+    }
+}
+
+// MARK: - Основное
+
+private struct GeneralTab: View {
+    @ObservedObject var store: SettingsStore
+    let onOpenModelPicker: () -> Void
+
+    @State private var autostart = Autostart.isEnabled
+    @State private var autostartError: String?
+
+    var body: some View {
+        Form {
+            Section {
+                Toggle("Запускать при входе в систему", isOn: $autostart)
+                    .onChange(of: autostart) { _, newValue in
+                        autostartError = Autostart.set(newValue)
+                        // Система могла отказать — показываем правду, а не галочку.
+                        autostart = Autostart.isEnabled
+                    }
+                if let autostartError {
+                    Text(autostartError)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.red)
+                }
+                Toggle("Звук при начале и конце записи", isOn: $store.config.sounds)
+                Toggle("Хранить записи и расшифровки", isOn: $store.config.keepHistory)
+            } header: {
+                Text("Поведение").font(.system(size: 12, weight: .semibold))
+            }
+
+            Section {
+                Picker("Куда девать текст", selection: $store.config.insertMode) {
+                    Text("Вставлять в активное поле").tag("paste")
+                    Text("Набирать посимвольно").tag("type")
+                    Text("Только копировать в буфер").tag("clipboard")
+                }
+                Text(insertHint)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            } header: {
+                Text("Вставка").font(.system(size: 12, weight: .semibold))
+            }
+
+            Section {
+                Picker("Язык речи", selection: $store.config.language) {
+                    Text("Русский").tag("ru")
+                    Text("Английский").tag("en")
+                    Text("Определять автоматически").tag("auto")
+                }
+                Text("Русский вариант распознаёт и англицизмы внутри русской речи — переключать не нужно. Автоопределение чуть медленнее и иногда ошибается на коротких фразах.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                HStack {
+                    Text("Модель")
+                    Spacer()
+                    Text(modelName)
+                        .foregroundStyle(.secondary)
+                    Button("Сменить…", action: onOpenModelPicker)
+                }
+            } header: {
+                Text("Распознавание").font(.system(size: 12, weight: .semibold))
+            }
+        }
+        .formStyle(.grouped)
+    }
+
+    private var insertHint: String {
+        switch store.config.insertMode {
+        case "type":
+            return "Буфер обмена не трогается, но длинный текст печатается заметно, и часть приложений глотает символы."
+        case "clipboard":
+            return "Текст кладётся в буфер, вставляешь сам через Cmd+V."
+        default:
+            return "Прежнее содержимое буфера обмена возвращается сразу после вставки."
+        }
+    }
+
+    private var modelName: String {
+        let file = (store.config.modelPath as NSString).lastPathComponent
+        guard !file.isEmpty else { return "не выбрана" }
+        let match = ModelCatalog.all.first { $0.fileName == file }
+        return match?.title ?? file
+    }
+}
+
+// MARK: - Словарь
+
+private struct VocabularyTab: View {
+    @ObservedObject var store: SettingsStore
+    @State private var newTerm = ""
+    @State private var problem: String?
+    @State private var selection: Set<String> = []
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Слова, которые нужно писать латиницей")
+                .font(.system(size: 13, weight: .semibold))
+            Text("Подсказка распознаванию: перечисленное здесь оно будет писать как написано, а не транслитом. Русские слова добавлять не нужно — они и так пишутся кириллицей.")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            HStack(spacing: 8) {
+                TextField("Например: pull request", text: $newTerm)
+                    .textFieldStyle(.roundedBorder)
+                    .onSubmit(add)
+                Button("Добавить", action: add)
+                    .disabled(newTerm.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+
+            if let problem {
+                Text(problem)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.orange)
+            }
+
+            List(selection: $selection) {
+                ForEach(store.config.vocabulary, id: \.self) { term in
+                    HStack {
+                        Text(term)
+                        Spacer()
+                        Button {
+                            store.removeTerm(term)
+                        } label: {
+                            Image(systemName: "minus.circle")
+                        }
+                        .buttonStyle(.borderless)
+                        .foregroundStyle(.secondary)
+                    }
+                    .padding(.vertical, 1)
+                }
+                .onDelete { store.removeTerms(at: $0) }
+            }
+            .frame(maxHeight: .infinity)
+
+            budgetBar
+        }
+    }
+
+    /// Показываем занятое место: у подсказки модели жёсткий потолок,
+    /// и молча обрезанный хвост словаря — худший из возможных сюрпризов.
+    private var budgetBar: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text("\(store.config.vocabulary.count) слов, \(store.vocabularyUsage) из \(store.vocabularyBudget) символов")
+                    .font(.system(size: 11).monospacedDigit())
+                    .foregroundStyle(store.vocabularyOverflow ? .orange : .secondary)
+                Spacer()
+            }
+            ProgressView(value: min(1, Double(store.vocabularyUsage) / Double(store.vocabularyBudget)))
+                .tint(store.vocabularyOverflow ? .orange : .accentColor)
+            if store.vocabularyOverflow {
+                Text("Список длиннее, чем принимает распознавание. Лишние слова в конце не работают — убери что-нибудь.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private func add() {
+        problem = store.addTerm(newTerm)
+        if problem == nil { newTerm = "" }
+    }
+}
+
+// MARK: - Замены
+
+private struct ReplacementsTab: View {
+    @ObservedObject var store: SettingsStore
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Исправления готового текста")
+                .font(.system(size: 13, weight: .semibold))
+            Text("Если распознавание стабильно ошибается на каком-то слове, впиши, что слышится и чем это заменить. Замена применяется без учёта регистра.")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            HStack {
+                Text("Слышится").font(.system(size: 11, weight: .medium))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Text("Писать").font(.system(size: 11, weight: .medium))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Spacer().frame(width: 28)
+            }
+            .foregroundStyle(.secondary)
+
+            List {
+                ForEach($store.config.replacements, id: \.from) { $item in
+                    HStack(spacing: 8) {
+                        TextField("верселе", text: $item.from)
+                            .textFieldStyle(.roundedBorder)
+                        Image(systemName: "arrow.right")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.secondary)
+                        TextField("Vercel", text: $item.to)
+                            .textFieldStyle(.roundedBorder)
+                        Button {
+                            store.config.replacements.removeAll { $0.from == item.from && $0.to == item.to }
+                        } label: {
+                            Image(systemName: "minus.circle")
+                        }
+                        .buttonStyle(.borderless)
+                        .foregroundStyle(.secondary)
+                    }
+                    .padding(.vertical, 1)
+                }
+                .onDelete { store.removeReplacements(at: $0) }
+            }
+            .frame(maxHeight: .infinity)
+
+            HStack {
+                Button("Добавить строку") { store.addReplacement() }
+                Spacer()
+                Text("\(store.config.replacements.count) замен")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+}
+
+// MARK: - О программе
+
+private struct AboutTab: View {
+    let onCheckUpdates: () -> Void
+
+    private var version: String {
+        let info = Bundle.main.infoDictionary
+        let short = info?["CFBundleShortVersionString"] as? String ?? "?"
+        let build = info?["CFBundleVersion"] as? String ?? "?"
+        return "\(short) (сборка \(build))"
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Голос").font(.system(size: 20, weight: .semibold))
+                Text("Версия \(version)").font(.system(size: 12)).foregroundStyle(.secondary)
+            }
+
+            Text("Голосовой ввод с распознаванием на этом Маке. Записи никуда не отправляются.")
+                .font(.system(size: 12))
+                .fixedSize(horizontal: false, vertical: true)
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Горячие клавиши").font(.system(size: 12, weight: .semibold))
+                shortcut("Держать правый ⌥", "запись, пока держишь")
+                shortcut("Двойной тап по правому ⌥", "запись до следующего тапа")
+                shortcut("Escape во время записи", "отменить без вставки")
+            }
+
+            Divider()
+
+            HStack(spacing: 10) {
+                Button("Проверить обновления…", action: onCheckUpdates)
+                Button("Папка записей") {
+                    let dir = Config.directory.appendingPathComponent("history")
+                    try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+                    NSWorkspace.shared.open(dir)
+                }
+                Button("Журнал") { NSWorkspace.shared.open(Log.fileURL) }
+            }
+
+            Spacer()
+
+            Link("github.com/Starochev/golos",
+                 destination: URL(string: "https://github.com/Starochev/golos")!)
+                .font(.system(size: 11))
+        }
+        .padding(4)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func shortcut(_ keys: String, _ what: String) -> some View {
+        HStack(spacing: 8) {
+            Text(keys)
+                .font(.system(size: 11, weight: .medium))
+                .frame(width: 190, alignment: .leading)
+            Text(what)
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+        }
+    }
+}

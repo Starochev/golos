@@ -33,6 +33,11 @@ final class Controller {
     private var permissionTimer: Timer?
     private var hotkeyAttached = false
     private var setupWindow: SetupWindow?
+    private var settingsWindow: SettingsWindow?
+    private lazy var settingsStore = SettingsStore()
+    /// Смена языка или модели требует перезапуска движка. Гасим дребезг:
+    /// пока пользователь щёлкает по списку, перезапускать нет смысла.
+    private var engineReloadWork: DispatchWorkItem?
 
     init() {
         whisper = Whisper(config: config)
@@ -57,6 +62,36 @@ final class Controller {
         !config.modelPath.isEmpty && FileManager.default.fileExists(atPath: config.modelPath)
     }
 
+    /// Окно настроек: словарь, замены, поведение.
+    func showSettings() {
+        if settingsWindow == nil {
+            settingsStore.onEngineRelevantChange = { [weak self] in
+                self?.scheduleEngineReload()
+            }
+            settingsWindow = SettingsWindow(
+                store: settingsStore,
+                onOpenModelPicker: { [weak self] in self?.showModelPicker() },
+                onCheckUpdates: { [weak self] in self?.onCheckUpdates?() }
+            )
+        }
+        settingsWindow?.show()
+    }
+
+    /// Проверку обновлений держит AppDelegate — сюда приходит замыканием.
+    var onCheckUpdates: (() -> Void)?
+
+    private func scheduleEngineReload() {
+        engineReloadWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            // Настройки пишутся с задержкой — дожимаем на диск перед чтением.
+            self.settingsStore.flush()
+            self.reload()
+        }
+        engineReloadWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8, execute: work)
+    }
+
     /// Окно выбора модели: при первом запуске и по пункту меню.
     func showModelPicker() {
         if setupWindow == nil {
@@ -67,6 +102,7 @@ final class Controller {
                 updated.vadModelPath = ""      // подберётся заново при загрузке
                 updated.save()
                 Log.write("выбрана модель: \(path)")
+                self.settingsStore.reloadFromDisk()
                 self.reload()
             }
         }
