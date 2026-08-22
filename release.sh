@@ -49,18 +49,39 @@ rm -rf "$STAGING"
 echo "   $DMG ($(du -h "$DMG" | cut -f1))"
 
 echo "── Подпись обновления и appcast"
-# generate_appcast сам подписывает каждый файл в папке и собирает список версий.
+# generate_appcast описывает все файлы, что найдёт в папке, и делает дельты
+# между версиями. Если скормить ему весь архив сборок, в appcast попадут
+# ссылки на файлы, которых в свежем релизе нет, — и Sparkle будет ходить
+# по ним в 404. Поэтому собираем строго по текущей версии.
+FEED="$DIST/feed"
+rm -rf "$FEED"
+mkdir -p "$FEED"
+cp "$DMG" "$FEED/"
+
 # Prefix нужен, чтобы Sparkle качал из релиза, а не искал файл рядом с appcast.
 "$SPARKLE_BIN/generate_appcast" \
     --download-url-prefix "https://github.com/$REPO/releases/download/v$VERSION/" \
     --link "https://github.com/$REPO" \
-    "$DIST" 2>&1 | grep -v "^$" || true
+    "$FEED" 2>&1 | grep -v "^$" || true
 
-if [ ! -f "$DIST/appcast.xml" ]; then
+if [ ! -f "$FEED/appcast.xml" ]; then
     echo "appcast.xml не собрался" >&2
     exit 1
 fi
-echo "   appcast.xml готов"
+cp "$FEED/appcast.xml" "$DIST/appcast.xml"
+
+# Каждая ссылка из appcast должна вести в этот же релиз.
+MISSING=0
+while read -r name; do
+    [ -f "$FEED/$name" ] || { echo "   в релизе не будет файла: $name" >&2; MISSING=1; }
+done < <(grep -o 'releases/download/v[^/]*/[^"]*' "$DIST/appcast.xml" \
+         | sed 's|.*/||' | python3 -c "
+import sys, urllib.parse
+for line in sys.stdin:
+    print(urllib.parse.unquote(line.strip()))
+")
+[ "$MISSING" = "0" ] || exit 1
+echo "   appcast.xml готов, все ссылки на месте"
 
 if [ -n "$DRY_RUN" ]; then
     echo
@@ -78,11 +99,11 @@ git tag -f "v$VERSION" > /dev/null
 git push origin HEAD --tags --force > /dev/null
 
 gh release create "v$VERSION" \
-    "$DMG" "$DIST/appcast.xml" \
+    "$FEED"/* \
     --repo "$REPO" \
     --title "Голос $VERSION" \
     --notes "Обновление $VERSION" \
-    || gh release upload "v$VERSION" "$DMG" "$DIST/appcast.xml" --repo "$REPO" --clobber
+    || gh release upload "v$VERSION" "$FEED"/* --repo "$REPO" --clobber
 
 echo
 echo "Готово. Установленные копии увидят обновление в течение суток"
