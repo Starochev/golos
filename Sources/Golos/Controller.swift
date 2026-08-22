@@ -79,6 +79,9 @@ final class Controller {
         settingsWindow?.show()
     }
 
+    /// Текущая громкость микрофона — для живой иконки в строке меню.
+    var micLevel: Float { recorder.level }
+
     /// Проверку обновлений держит AppDelegate — сюда приходит замыканием.
     var onCheckUpdates: (() -> Void)?
 

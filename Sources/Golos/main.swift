@@ -7,6 +7,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let controller = Controller()
     private var statusLine: NSMenuItem!
     private var signalSources: [DispatchSourceSignal] = []
+    private var animationTimer: Timer?
+    private var transcribePhase: CGFloat = 0
     private let updater = Updater()
     private var toggleItem: NSMenuItem!
 
@@ -93,43 +95,68 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         switch state {
         case .starting:
-            symbol("hourglass", tint: .secondaryLabelColor, on: button)
+            button.image = MenuBarIcon.image(for: .loading)
             statusLine.title = "Гружу модель…"
             toggleItem.isEnabled = false
             toggleItem.title = "Начать запись"
         case .idle:
-            symbol("mic", tint: .labelColor, on: button)
+            button.image = MenuBarIcon.image(for: .idle)
             statusLine.title = "Готово"
             toggleItem.isEnabled = true
             toggleItem.title = "Начать запись"
         case .recording:
-            symbol("mic.fill", tint: .systemRed, on: button)
             statusLine.title = "Идёт запись"
             toggleItem.isEnabled = true
             toggleItem.title = "Остановить и распознать"
         case .transcribing:
-            symbol("waveform", tint: .systemBlue, on: button)
             statusLine.title = "Распознаю…"
             toggleItem.isEnabled = false
             toggleItem.title = "Начать запись"
         case .needsModel:
-            symbol("arrow.down.circle", tint: .systemBlue, on: button)
+            button.image = MenuBarIcon.image(for: .needsModel)
             statusLine.title = "Нужно выбрать модель"
             toggleItem.isEnabled = false
             toggleItem.title = "Начать запись"
         case .failed(let message):
-            symbol("exclamationmark.triangle", tint: .systemOrange, on: button)
+            button.image = MenuBarIcon.image(for: .failed)
             statusLine.title = message
             toggleItem.isEnabled = true
             toggleItem.title = "Начать запись"
         }
+
+        button.imagePosition = .imageOnly
+        updateAnimation(for: state)
     }
 
-    private func symbol(_ name: String, tint: NSColor, on button: NSStatusBarButton) {
-        let image = NSImage(systemSymbolName: name, accessibilityDescription: nil)
-        image?.isTemplate = false
-        button.image = image?.tinted(with: tint)
-        button.imagePosition = .imageOnly
+    /// Иконка оживает только в двух состояниях — в покое таймер не нужен.
+    private func updateAnimation(for state: Controller.State) {
+        switch state {
+        case .recording, .transcribing:
+            guard animationTimer == nil else { return }
+            transcribePhase = 0
+            let timer = Timer(timeInterval: 1.0 / 20.0, repeats: true) { [weak self] _ in
+                MainActor.assumeIsolated { self?.animateIcon() }
+            }
+            RunLoop.main.add(timer, forMode: .common)
+            animationTimer = timer
+        default:
+            animationTimer?.invalidate()
+            animationTimer = nil
+        }
+    }
+
+    private func animateIcon() {
+        guard let button = statusItem.button else { return }
+        switch controller.state {
+        case .recording:
+            button.image = MenuBarIcon.image(for: .recording(level: CGFloat(controller.micLevel)))
+        case .transcribing:
+            transcribePhase += 0.32
+            button.image = MenuBarIcon.image(for: .transcribing(phase: transcribePhase))
+        default:
+            animationTimer?.invalidate()
+            animationTimer = nil
+        }
     }
 
     @objc private func toggleRecording() { controller.toggleFromMenu() }
@@ -140,20 +167,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func checkForUpdates() { updater.checkNowBringingToFront() }
 
     @objc private func quit() { NSApp.terminate(nil) }
-}
-
-private extension NSImage {
-    /// SF Symbol в строке меню перекрашиваем сами: шаблонный режим красит всё в чёрный.
-    func tinted(with color: NSColor) -> NSImage {
-        let image = NSImage(size: size, flipped: false) { rect in
-            color.set()
-            self.draw(in: rect)
-            rect.fill(using: .sourceAtop)
-            return true
-        }
-        image.isTemplate = false
-        return image
-    }
 }
 
 // Код верхнего уровня исполняется на главном потоке, но компилятор об этом
