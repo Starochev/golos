@@ -1,0 +1,6 @@
+.build/
+dist/
+vendor/
+signing/
+*.app/
+.DS_Store
