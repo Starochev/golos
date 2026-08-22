@@ -23,14 +23,59 @@ struct Config: Codable {
     var threads: Int = 8
     /// Звуковые сигналы старта и конца записи.
     var sounds: Bool = true
+    /// Какой набор тонов играть: см. Sounds.themes.
+    var soundTheme: String = Sounds.defaultThemeID
     /// Хранить ли wav и расшифровку в ~/Documents/Golos/history.
     var keepHistory: Bool = true
+    /// Через сколько часов удалять записи. 0 — не удалять никогда.
+    /// По умолчанию час: история нужна, чтобы разобрать свежую ошибку
+    /// распознавания, а не копить гигабайты голоса на диске.
+    var historyRetentionHours: Int = 1
 
     struct Replacement: Codable {
         var from: String
         var to: String
         /// true — сопоставлять без учёта регистра.
         var ignoreCase: Bool = true
+
+        init(from: String, to: String, ignoreCase: Bool = true) {
+            self.from = from
+            self.to = to
+            self.ignoreCase = ignoreCase
+        }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            from = try c.decodeIfPresent(String.self, forKey: .from) ?? ""
+            to = try c.decodeIfPresent(String.self, forKey: .to) ?? ""
+            ignoreCase = try c.decodeIfPresent(Bool.self, forKey: .ignoreCase) ?? true
+        }
+    }
+
+    init() {}
+
+    /// Разбираем конфиг по одному полю с запасным значением.
+    ///
+    /// Синтезированный Codable требует в файле все ключи разом: стоит добавить
+    /// в новой версии одно поле — и конфиг от прошлой версии перестаёт читаться.
+    /// Раньше это означало молчаливую потерю словаря при обновлении.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let fallback = Config()
+
+        language = try c.decodeIfPresent(String.self, forKey: .language) ?? fallback.language
+        modelPath = try c.decodeIfPresent(String.self, forKey: .modelPath) ?? fallback.modelPath
+        vadModelPath = try c.decodeIfPresent(String.self, forKey: .vadModelPath) ?? fallback.vadModelPath
+        vocabulary = try c.decodeIfPresent([String].self, forKey: .vocabulary) ?? fallback.vocabulary
+        replacements = try c.decodeIfPresent([Replacement].self, forKey: .replacements) ?? fallback.replacements
+        insertMode = try c.decodeIfPresent(String.self, forKey: .insertMode) ?? fallback.insertMode
+        port = try c.decodeIfPresent(Int.self, forKey: .port) ?? fallback.port
+        threads = try c.decodeIfPresent(Int.self, forKey: .threads) ?? fallback.threads
+        sounds = try c.decodeIfPresent(Bool.self, forKey: .sounds) ?? fallback.sounds
+        soundTheme = try c.decodeIfPresent(String.self, forKey: .soundTheme) ?? fallback.soundTheme
+        keepHistory = try c.decodeIfPresent(Bool.self, forKey: .keepHistory) ?? fallback.keepHistory
+        historyRetentionHours = try c.decodeIfPresent(Int.self, forKey: .historyRetentionHours)
+            ?? fallback.historyRetentionHours
     }
 
     static var directory: URL {
@@ -45,11 +90,20 @@ struct Config: Codable {
         let fm = FileManager.default
         try? fm.createDirectory(at: directory, withIntermediateDirectories: true)
 
-        if let data = try? Data(contentsOf: fileURL),
-           var cfg = try? JSONDecoder().decode(Config.self, from: data) {
-            if cfg.modelPath.isEmpty { cfg.modelPath = defaultModelPath() ?? "" }
-            if cfg.vadModelPath.isEmpty { cfg.vadModelPath = defaultVadPath() ?? "" }
-            return cfg
+        if let data = try? Data(contentsOf: fileURL) {
+            do {
+                var cfg = try JSONDecoder().decode(Config.self, from: data)
+                if cfg.modelPath.isEmpty { cfg.modelPath = defaultModelPath() ?? "" }
+                if cfg.vadModelPath.isEmpty { cfg.vadModelPath = defaultVadPath() ?? "" }
+                return cfg
+            } catch {
+                // Файл есть, но разобрать не вышло — не затираем его молча:
+                // там мог быть словарь, который человек набирал руками.
+                let broken = directory.appendingPathComponent("config.broken.json")
+                try? fm.removeItem(at: broken)
+                try? fm.copyItem(at: fileURL, to: broken)
+                Log.write("конфиг не разобрался, копия сохранена в config.broken.json: \(error)")
+            }
         }
 
         var cfg = Config()
@@ -73,7 +127,8 @@ struct Config: Codable {
         let enc = JSONEncoder()
         enc.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         try? FileManager.default.createDirectory(at: Config.directory, withIntermediateDirectories: true)
-        try? enc.encode(self).write(to: Config.fileURL)
+        // Атомарно: обрыв записи не должен оставить обрезанный конфиг.
+        try? enc.encode(self).write(to: Config.fileURL, options: .atomic)
     }
 
     /// Строка, которую whisper получает как initial prompt.

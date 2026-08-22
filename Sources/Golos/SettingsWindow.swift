@@ -101,9 +101,59 @@ private struct GeneralTab: View {
                         .foregroundStyle(.red)
                 }
                 Toggle("Звук при начале и конце записи", isOn: $store.config.sounds)
-                Toggle("Хранить записи и расшифровки", isOn: $store.config.keepHistory)
+
+                if store.config.sounds {
+                    HStack {
+                        Picker("Сигнал", selection: $store.config.soundTheme) {
+                            ForEach(Sounds.themes, id: \.id) { theme in
+                                Text(theme.title).tag(theme.id)
+                            }
+                        }
+                        Button {
+                            preview()
+                        } label: {
+                            Image(systemName: "play.circle")
+                        }
+                        .buttonStyle(.borderless)
+                        .help("Прослушать")
+                    }
+                    Text(Sounds.theme(id: store.config.soundTheme).note)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
             } header: {
                 Text("Поведение").font(.system(size: 12, weight: .semibold))
+            }
+
+            Section {
+                Toggle("Хранить записи и расшифровки", isOn: $store.config.keepHistory)
+                Text("На каждую диктовку сохраняется аудиофайл с твоим голосом и текстовый файл с расшифровкой. Нужно, чтобы послушать, что распознавание услышало в неудачной фразе.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if store.config.keepHistory {
+                    Picker("Удалять записи", selection: $store.config.historyRetentionHours) {
+                        Text("Через час").tag(1)
+                        Text("Через сутки").tag(24)
+                        Text("Через неделю").tag(168)
+                        Text("Не удалять").tag(0)
+                    }
+                    HStack {
+                        Text(historySize)
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Button("Открыть папку") {
+                            let dir = Config.directory.appendingPathComponent("history")
+                            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+                            NSWorkspace.shared.open(dir)
+                        }
+                        .controlSize(.small)
+                    }
+                }
+            } header: {
+                Text("История").font(.system(size: 12, weight: .semibold))
             }
 
             Section {
@@ -143,6 +193,29 @@ private struct GeneralTab: View {
             }
         }
         .formStyle(.grouped)
+    }
+
+    /// Проигрываем обе метки подряд — так слышно пару целиком.
+    private func preview() {
+        Sounds.play(.start, themeID: store.config.soundTheme)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
+            Sounds.play(.stop, themeID: store.config.soundTheme)
+        }
+    }
+
+    private var historySize: String {
+        let dir = Config.directory.appendingPathComponent("history")
+        guard let files = try? FileManager.default.contentsOfDirectory(
+            at: dir, includingPropertiesForKeys: [.fileSizeKey]) else {
+            return "Записей пока нет"
+        }
+        let recordings = files.filter { $0.pathExtension == "wav" }.count
+        let bytes = files.reduce(0) { sum, url in
+            sum + ((try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0)
+        }
+        guard recordings > 0 else { return "Записей пока нет" }
+        let mb = Double(bytes) / 1_048_576
+        return String(format: "Сейчас %d записей, %.1f МБ", recordings, mb)
     }
 
     private var insertHint: String {

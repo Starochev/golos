@@ -45,6 +45,7 @@ final class Controller {
 
     func start() {
         Log.write("запуск")
+        purgeHistory()
         requestMicrophone()
         startHotkey()
 
@@ -236,7 +237,7 @@ final class Controller {
         do {
             try recorder.start()
             state = .recording
-            play("Tink")
+            play(.start)
         } catch {
             state = .failed(error.localizedDescription)
         }
@@ -256,7 +257,7 @@ final class Controller {
             return
         }
 
-        play("Pop")
+        play(.stop)
         state = .transcribing
 
         whisper.transcribe(wav: wav, prompt: config.promptString) { [weak self] result in
@@ -291,9 +292,9 @@ final class Controller {
         Inserter.insert(lastText, mode: .clipboard)
     }
 
-    private func play(_ name: String) {
+    private func play(_ moment: Sounds.Moment) {
         guard config.sounds else { return }
-        NSSound(named: name)?.play()
+        Sounds.play(moment, themeID: config.soundTheme)
     }
 
     private func saveHistory(wav: Data, text: String) {
@@ -303,6 +304,32 @@ final class Controller {
         let stamp = ISO8601DateFormatter.filenameSafe.string(from: Date())
         try? wav.write(to: dir.appendingPathComponent("\(stamp).wav"))
         try? text.write(to: dir.appendingPathComponent("\(stamp).txt"), atomically: true, encoding: .utf8)
+        purgeHistory()
+    }
+
+    /// Чистит старые записи. Голос на диске — вещь чувствительная, и держать
+    /// его дольше нужного незачем: история решает одну задачу — посмотреть,
+    /// что распознавание услышало в только что сказанной фразе.
+    func purgeHistory() {
+        let hours = config.historyRetentionHours
+        guard hours > 0 else { return }
+
+        let dir = Config.directory.appendingPathComponent("history")
+        let cutoff = Date().addingTimeInterval(-Double(hours) * 3600)
+        let fm = FileManager.default
+        guard let files = try? fm.contentsOfDirectory(at: dir,
+                                                      includingPropertiesForKeys: [.contentModificationDateKey])
+        else { return }
+
+        var removed = 0
+        for file in files {
+            let modified = (try? file.resourceValues(forKeys: [.contentModificationDateKey]))?
+                .contentModificationDate
+            guard let modified, modified < cutoff else { continue }
+            try? fm.removeItem(at: file)
+            removed += 1
+        }
+        if removed > 0 { Log.write("история: удалено файлов \(removed)") }
     }
 }
 
