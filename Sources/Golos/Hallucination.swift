@@ -123,4 +123,80 @@ enum Hallucination {
 
         return words.joined(separator: " ")
     }
+
+    // MARK: - Зацикливание
+
+    /// Сколько повторов подряд считаем сбоем, а не речью.
+    private static let minimumRepeats = 3
+    /// Какую долю текста должен занимать повтор, чтобы признать его выдумкой.
+    private static let degenerateShare = 0.7
+    /// Длина повторяющейся группы, которую ищем.
+    private static let repeatGroupSizes = 1...4
+
+    /// Весь ли текст — это одно зациклившееся место.
+    ///
+    /// Whisper иногда срывается в повтор: шесть секунд речи дают «Ссылка на
+    /// сайт» пять раз подряд и больше ничего. Отличаем от живой речи по доле:
+    /// когда человек сам повторяет фразу, вокруг остаётся другой текст.
+    static func looksDegenerate(_ text: String) -> Bool {
+        let words = text.split(whereSeparator: { $0.isWhitespace }).map(String.init)
+        guard words.count >= 4 else { return false }
+
+        let (count, size, _) = longestRun(in: words)
+        guard count >= minimumRepeats else { return false }
+        return Double(count * size) / Double(words.count) >= degenerateShare
+    }
+
+    /// Схлопывает повтор, если он прилип к концу правильного текста.
+    ///
+    /// Только к концу: в середине повтор обычно настоящий — человек
+    /// пересказывает, что ему выдало приложение.
+    static func collapsingTrailingRepeats(_ text: String) -> String {
+        var words = text.split(whereSeparator: { $0.isWhitespace }).map(String.init)
+
+        for size in repeatGroupSizes.reversed() {
+            guard words.count >= size * minimumRepeats else { continue }
+
+            var repeats = 1
+            var start = words.count - size
+            while start - size >= 0,
+                  normalizedGroup(words, start - size, size) == normalizedGroup(words, start, size) {
+                repeats += 1
+                start -= size
+            }
+
+            if repeats >= minimumRepeats {
+                let removed = (repeats - 1) * size
+                Log.write("схлопнул повтор в конце: «\(words.suffix(removed).joined(separator: " "))»")
+                words.removeLast(removed)
+                return words.joined(separator: " ")
+            }
+        }
+        return text
+    }
+
+    /// Самый длинный ряд одинаковых групп: сколько повторов и какой длины.
+    private static func longestRun(in words: [String]) -> (count: Int, size: Int, start: Int) {
+        var best = (count: 0, size: 0, start: 0)
+        for size in repeatGroupSizes {
+            var index = 0
+            while index + size * 2 <= words.count {
+                var repeats = 1
+                while index + size * (repeats + 1) <= words.count,
+                      normalizedGroup(words, index, size)
+                        == normalizedGroup(words, index + size * repeats, size) {
+                    repeats += 1
+                }
+                if repeats * size > best.count * best.size {
+                    best = (repeats, size, index)
+                }
+                index += 1
+            }
+        }
+        return best
+    }
+
+    private static func normalizedGroup(_ words: [String], _ start: Int, _ size: Int) -> String {
+        normalize(words[start..<(start + size)].joined(separator: " "))
+    }
 }

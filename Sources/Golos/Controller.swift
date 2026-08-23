@@ -334,16 +334,26 @@ final class Controller {
                 // Модель иногда подставляет вместо речи заученную фразу из
                 // субтитров. Звук при этом нормальный, и со второй попытки
                 // тот же файл распознаётся верно — поэтому переспрашиваем.
-                if attempt == 1,
-                   Hallucination.looksInvented(text: raw,
-                                               audioDuration: Self.duration(ofWav: wav)) {
-                    Log.write("похоже на выдумку модели: «\(raw)» — переспрашиваю")
+                let invented = Hallucination.looksInvented(
+                    text: raw, audioDuration: Self.duration(ofWav: wav))
+                // Отдельный сбой: декодер срывается в повтор и весь ответ
+                // состоит из одной зациклившейся фразы.
+                let degenerate = Hallucination.looksDegenerate(raw)
+
+                if attempt == 1, invented || degenerate {
+                    let reason = degenerate ? "зациклилось" : "заученная фраза"
+                    Log.write("похоже на выдумку модели (\(reason)): «\(raw)» — переспрашиваю")
                     self.transcribe(wav: wav, generation: generation, attempt: 2,
                                     completion: completion)
                     return
                 }
-                // Заученная фраза цепляется и в хвост куска — срезаем до склейки.
-                completion(Hallucination.strippingTrailingInvention(raw))
+
+                // Повтор и заученная фраза цепляются в хвост куска — чистим
+                // до склейки, иначе в середине текста их уже не отличить
+                // от живой речи.
+                let cleaned = Hallucination.strippingTrailingInvention(
+                    Hallucination.collapsingTrailingRepeats(raw))
+                completion(cleaned)
 
             case .failure(let error):
                 // Окошко и состояние трогаем, только если новая запись
@@ -367,7 +377,9 @@ final class Controller {
     /// Всё распознано — вставляем и прибираем состояние.
     private func finish(text raw: String, wav: Data, generation: Int) {
         let current = generation == recordingGeneration
-        let text = config.applyReplacements(to: Hallucination.strippingTrailingInvention(raw))
+        let text = config.applyReplacements(
+            to: Hallucination.strippingTrailingInvention(
+                Hallucination.collapsingTrailingRepeats(raw)))
         Log.write("распознано: \(text)")
 
         guard !text.isEmpty else {
