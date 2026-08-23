@@ -106,6 +106,8 @@ private struct GeneralTab: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
 
+                WaveColorPicker(store: store)
+
                 Toggle("Звук при начале и конце записи", isOn: $store.config.sounds)
 
                 if store.config.sounds {
@@ -240,6 +242,113 @@ private struct GeneralTab: View {
         guard !file.isEmpty else { return "не выбрана" }
         let match = ModelCatalog.all.first { $0.fileName == file }
         return match?.title ?? file
+    }
+}
+
+/// Палитра для волны. Один цвет красит и окошко записи, и иконку в меню.
+private struct WaveColorPicker: View {
+    @ObservedObject var store: SettingsStore
+
+    private var currentColor: Color {
+        Color(WaveTheme.color(for: store.config))
+    }
+
+    private var customBinding: Binding<Color> {
+        Binding(
+            get: { Color(NSColor(hex: store.config.customWaveColor) ?? WaveTheme.fallback.nsColor) },
+            set: { store.config.customWaveColor = NSColor($0).hexString }
+        )
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                ForEach(WaveTheme.all) { theme in
+                    swatch(color: theme.swiftUIColor,
+                           selected: store.config.waveTheme == theme.id,
+                           help: theme.title) {
+                        store.config.waveTheme = theme.id
+                    }
+                }
+                swatch(color: customBinding.wrappedValue,
+                       selected: store.config.waveTheme == WaveTheme.customID,
+                       help: "Свой цвет",
+                       dashed: true) {
+                    store.config.waveTheme = WaveTheme.customID
+                }
+
+                Spacer()
+                WavePreview(color: currentColor)
+            }
+
+            if store.config.waveTheme == WaveTheme.customID {
+                ColorPicker("Свой цвет", selection: customBinding, supportsOpacity: false)
+                    .labelsHidden()
+                    .frame(width: 60, alignment: .leading)
+            }
+
+            Text(hint)
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var hint: String {
+        if store.config.waveTheme == "mono" {
+            return "Монохром в строке меню рисуется шаблоном — система сама подгонит его под светлую и тёмную тему."
+        }
+        if store.config.waveTheme == WaveTheme.customID {
+            return "Свой цвет применяется и к окошку, и к иконке в меню. Слишком светлый плохо виден на светлой строке меню."
+        }
+        return "Красит окошко записи и иконку в строке меню, пока идёт запись."
+    }
+
+    private func swatch(color: Color, selected: Bool, help: String,
+                        dashed: Bool = false, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            ZStack {
+                Circle()
+                    .fill(color)
+                    .frame(width: 22, height: 22)
+                if dashed {
+                    Circle()
+                        .strokeBorder(style: StrokeStyle(lineWidth: 1.5, dash: [3, 2]))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 22, height: 22)
+                }
+                Circle()
+                    .strokeBorder(selected ? Color.primary : Color.secondary.opacity(0.25),
+                                  lineWidth: selected ? 2 : 1)
+                    .frame(width: 28, height: 28)
+            }
+            .frame(width: 30, height: 30)
+        }
+        .buttonStyle(.borderless)
+        .help(help)
+    }
+}
+
+/// Маленькая статичная волна — чтобы выбор цвета был виден сразу.
+private struct WavePreview: View {
+    let color: Color
+    private let heights: [CGFloat] = [6, 12, 20, 28, 20, 12, 6]
+
+    var body: some View {
+        HStack(spacing: 3) {
+            ForEach(Array(heights.enumerated()), id: \.offset) { _, h in
+                Capsule()
+                    .fill(color.opacity(0.95))
+                    .frame(width: 3.5, height: h)
+                    .shadow(color: color.opacity(0.5), radius: 3)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .fill(Color(red: 0.05, green: 0.05, blue: 0.06))
+        )
     }
 }
 

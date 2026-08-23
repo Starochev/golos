@@ -10,7 +10,7 @@ enum MenuBarIcon {
     enum Look {
         case loading
         case idle
-        case recording(level: CGFloat)
+        case recording(level: CGFloat, color: NSColor?)
         case transcribing(phase: CGFloat)
         case needsModel
         case failed
@@ -33,8 +33,8 @@ enum MenuBarIcon {
             return symbol("exclamationmark.triangle.fill", template: false, tint: .systemOrange)
         case .idle:
             return bars(heights: idleHeights, color: nil)
-        case .recording(let level):
-            return bars(heights: recordingHeights(level: level), color: .systemRed)
+        case .recording(let level, let color):
+            return bars(heights: recordingHeights(level: level), color: color)
         case .transcribing(let phase):
             return bars(heights: travellingHeights(phase: phase), color: .secondaryLabelColor)
         }

@@ -149,7 +149,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let button = statusItem.button else { return }
         switch controller.state {
         case .recording:
-            button.image = MenuBarIcon.image(for: .recording(level: CGFloat(controller.micLevel)))
+            button.image = MenuBarIcon.image(
+                for: .recording(level: CGFloat(controller.micLevel),
+                                color: controller.menuBarWaveColor))
         case .transcribing:
             transcribePhase += 0.32
             button.image = MenuBarIcon.image(for: .transcribing(phase: transcribePhase))

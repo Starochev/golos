@@ -16,8 +16,9 @@ final class RecorderHUD {
     private var levelSource: (() -> Float)?
 
     /// Показать окошко и начать опрашивать громкость.
-    func show(levelSource: @escaping () -> Float) {
+    func show(color: NSColor, levelSource: @escaping () -> Float) {
         self.levelSource = levelSource
+        model.color = Color(color)
         model.reset()
         model.phase = .recording
         ensurePanel()
@@ -96,6 +97,7 @@ final class RecorderHUD {
 private final class HUDModel: ObservableObject {
     @Published var levels: [CGFloat]
     @Published var phase: RecorderHUD.Phase = .recording
+    @Published var color: Color = .white
 
     private let count = 34
     private var tick: CGFloat = 0
@@ -149,9 +151,9 @@ private struct HUDView: View {
         HStack(spacing: 3.5) {
             ForEach(Array(model.levels.enumerated()), id: \.offset) { _, level in
                 Capsule()
-                    .fill(Color.white.opacity(0.92))
+                    .fill(model.color.opacity(0.95))
                     .frame(width: 4, height: max(4, level * 44))
-                    .shadow(color: .white.opacity(0.55), radius: 4)
+                    .shadow(color: model.color.opacity(0.6), radius: 4)
             }
         }
         .frame(height: 46)
@@ -160,7 +162,7 @@ private struct HUDView: View {
 
     private var transcribing: some View {
         HStack(spacing: 8) {
-            PulsingDot()
+            PulsingDot(color: model.color)
             Text("Распознаю…")
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(.white.opacity(0.9))
@@ -170,13 +172,14 @@ private struct HUDView: View {
 
 /// Точка, которая дышит, пока идёт распознавание.
 private struct PulsingDot: View {
+    let color: Color
     @State private var big = false
 
     var body: some View {
         Circle()
-            .fill(Color.white.opacity(0.9))
+            .fill(color.opacity(0.9))
             .frame(width: 8, height: 8)
-            .shadow(color: .white.opacity(0.7), radius: 5)
+            .shadow(color: color.opacity(0.7), radius: 5)
             .scaleEffect(big ? 1.35 : 0.75)
             .animation(.easeInOut(duration: 0.6).repeatForever(autoreverses: true), value: big)
             .onAppear { big = true }

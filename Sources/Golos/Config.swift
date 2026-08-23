@@ -27,6 +27,10 @@ struct Config: Codable {
     var soundTheme: String = Sounds.defaultThemeID
     /// Показывать ли окошко с живой волной во время записи.
     var showHUD: Bool = true
+    /// Цвет волны: идентификатор темы из WaveTheme.all либо "custom".
+    var waveTheme: String = "red"
+    /// Свой цвет в виде "#RRGGBB" — используется, когда waveTheme = "custom".
+    var customWaveColor: String = "#7CE0FF"
     /// Хранить ли wav и расшифровку в ~/Documents/Golos/history.
     var keepHistory: Bool = true
     /// Через сколько часов удалять записи. 0 — не удалять никогда.
@@ -76,6 +80,9 @@ struct Config: Codable {
         sounds = try c.decodeIfPresent(Bool.self, forKey: .sounds) ?? fallback.sounds
         soundTheme = try c.decodeIfPresent(String.self, forKey: .soundTheme) ?? fallback.soundTheme
         showHUD = try c.decodeIfPresent(Bool.self, forKey: .showHUD) ?? fallback.showHUD
+        waveTheme = try c.decodeIfPresent(String.self, forKey: .waveTheme) ?? fallback.waveTheme
+        customWaveColor = try c.decodeIfPresent(String.self, forKey: .customWaveColor)
+            ?? fallback.customWaveColor
         keepHistory = try c.decodeIfPresent(Bool.self, forKey: .keepHistory) ?? fallback.keepHistory
         historyRetentionHours = try c.decodeIfPresent(Int.self, forKey: .historyRetentionHours)
             ?? fallback.historyRetentionHours

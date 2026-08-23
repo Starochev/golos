@@ -82,6 +82,9 @@ final class Controller {
     /// Текущая громкость микрофона — для живой иконки в строке меню.
     var micLevel: Float { recorder.level }
 
+    /// Цвет волны в строке меню. nil — рисовать шаблоном.
+    var menuBarWaveColor: NSColor? { WaveTheme.menuBarColor(for: config) }
+
     /// Проверку обновлений держит AppDelegate — сюда приходит замыканием.
     var onCheckUpdates: (() -> Void)?
 
@@ -243,7 +246,9 @@ final class Controller {
             state = .recording
             play(.start)
             if config.showHUD {
-                hud.show { [weak self] in self?.recorder.level ?? 0 }
+                hud.show(color: WaveTheme.color(for: config)) { [weak self] in
+                    self?.recorder.level ?? 0
+                }
             }
         } catch {
             state = .failed(error.localizedDescription)
