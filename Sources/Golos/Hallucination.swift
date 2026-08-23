@@ -73,65 +73,54 @@ enum Hallucination {
         return Double(text.count) / audioDuration < minimumDensity
     }
 
-    /// Максимальная длина хвоста, который считаем приклеенным.
-    private static let maxTailLength = 30
+    /// Заученные концовки. Проверяются только как хвост: «Всем привет»
+    /// в начале речи законно, а после двадцати секунд диктовки — уже нет.
+    private static let trailingPhrases: [String] = [
+        "всем пока",
+        "всем привет",
+        "всем спасибо за просмотр",
+        "спасибо за просмотр",
+        "спасибо за внимание",
+        "продолжение следует",
+        "подписывайтесь на канал",
+        "ставьте лайки",
+        "до новых встреч",
+        "субтитры сделал dimatorzok",
+        "субтитры сделал",
+        "редактор субтитров",
+        "thanks for watching",
+        "please subscribe"
+    ]
+
     /// Столько слов должно остаться, чтобы отсечение имело смысл.
-    /// Считаем слова, а не знаки: «Сделай панель настроек» короче любого
-    /// разумного порога в символах, но это законченная мысль.
     private static let minimumRemainderWords = 3
+    /// Дальше по словам вглубь хвост не ищем.
+    private static let maxTailWords = 6
 
     /// Срезает заученную фразу, приклеенную в конец правильного текста.
     ///
     /// Второй способ, которым лезут субтитры: основной текст распознан верно,
-    /// а в хвост добавляется концовка ролика. Общая плотность при этом
-    /// нормальная, и проверка по всему тексту такое не ловит.
+    /// а в хвост добавляется концовка ролика. Плотность всего текста при этом
+    /// нормальная, и проверка по нему такое не видит.
     ///
-    /// Режем только короткое последнее предложение и только если до него
-    /// осталось достаточно текста: «Спасибо за просмотр этого макета»
-    /// целиком не трогаем.
+    /// Ищем по словам, а не по предложениям: разделителя перед выдумкой может
+    /// не быть вовсе — «Как-то можно сделать, чтобы Спасибо за просмотр!».
     static func strippingTrailingInvention(_ text: String) -> String {
-        var result = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        var words = text.split(whereSeparator: { $0.isWhitespace }).map(String.init)
 
         while true {
-            guard let cut = lastSentenceStart(in: result) else { return result }
-            let tail = String(result[cut...]).trimmingCharacters(in: .whitespacesAndNewlines)
-            let head = String(result[..<cut]).trimmingCharacters(in: .whitespacesAndNewlines)
-
-            let headWords = head.split(whereSeparator: { $0.isWhitespace }).count
-            guard tail.count <= maxTailLength, headWords >= minimumRemainderWords else { return result }
-
-            let normalized = normalize(tail)
-            let stock = alwaysInvented.contains { normalized.contains($0) }
-                || suspiciousCores.contains { normalized.contains($0) }
-            guard stock else { return result }
-
-            Log.write("срезал приклеенное в конец: «\(tail)»")
-            result = head
-        }
-    }
-
-    /// Позиция, с которой начинается последнее предложение.
-    private static func lastSentenceStart(in text: String) -> String.Index? {
-        let enders = CharacterSet(charactersIn: ".!?…")
-        // Точку в конце самого текста пропускаем — ищем разделитель до неё.
-        var index = text.endIndex
-        while index > text.startIndex {
-            let previous = text.index(before: index)
-            if text[previous].unicodeScalars.allSatisfy({ enders.contains($0) }) == false {
-                break
+            var cut = 0
+            for tailCount in 1...maxTailWords where words.count - tailCount >= minimumRemainderWords {
+                let tail = words.suffix(tailCount).joined(separator: " ")
+                if trailingPhrases.contains(normalize(tail)) { cut = tailCount }
             }
-            index = previous
-        }
-        guard index > text.startIndex else { return nil }
+            guard cut > 0 else { break }
 
-        var search = index
-        while search > text.startIndex {
-            let previous = text.index(before: search)
-            if text[previous].unicodeScalars.allSatisfy({ enders.contains($0) }) {
-                return search
-            }
-            search = previous
+            let removed = words.suffix(cut).joined(separator: " ")
+            Log.write("срезал приклеенное в конец: «\(removed)»")
+            words.removeLast(cut)
         }
-        return nil
+
+        return words.joined(separator: " ")
     }
 }
