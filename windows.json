@@ -1,6 +1,6 @@
 {
-  "version": "0.2.2",
-  "url": "https://github.com/Starochev/golos/releases/download/win-v0.2.2/Golos.exe",
-  "sha256": "7BCDADDD1BD3704A35920A71823FB61B42F7E2D1F9D2EFF363BCAD0892EA1270",
-  "notes": "Заученные фразы из субтитров больше не проскакивают — ни целиком, ни приклеенными в конец."
+  "version": "0.2.3",
+  "url": "https://github.com/Starochev/golos/releases/download/win-v0.2.3/Golos.exe",
+  "sha256": "C75B155FC8FC873A9202A42CFE7FA593ADC2DD26A64054D04204504564E366D7",
+  "notes": "Заученная концовка срезается, даже если приклеена без разделителя."
 }
