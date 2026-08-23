@@ -332,7 +332,12 @@ final class Controller {
 
     private func transcribe(wav: Data, generation: Int, attempt: Int,
                             completion: @escaping (String?) -> Void) {
-        whisper.transcribe(wav: wav, prompt: config.promptString) { [weak self] result in
+        // Со второй попытки идём без словаря. Именно он и рушит распознавание:
+        // замерено на живом куске в 15 секунд речи — со словарём три попытки
+        // дали три разные выдумки, без словаря текст распознался целиком.
+        // Замены по готовому тексту при этом никуда не деваются.
+        let prompt = attempt == 1 ? config.promptString : ""
+        whisper.transcribe(wav: wav, prompt: prompt) { [weak self] result in
             guard let self else { return }
 
             switch result {
@@ -348,7 +353,7 @@ final class Controller {
 
                 if attempt == 1, invented || degenerate {
                     let reason = degenerate ? "зациклилось" : "заученная фраза"
-                    Log.write("похоже на выдумку модели (\(reason)): «\(raw)» — переспрашиваю")
+                    Log.write("похоже на выдумку модели (\(reason)): «\(raw)» — переспрашиваю без словаря")
                     self.transcribe(wav: wav, generation: generation, attempt: 2,
                                     completion: completion)
                     return
@@ -359,6 +364,16 @@ final class Controller {
                 // от живой речи.
                 let cleaned = Hallucination.strippingTrailingInvention(
                     Hallucination.collapsingTrailingRepeats(raw))
+
+                // Кусок вычистился в ноль — значит весь ответ был выдумкой,
+                // а под ним осталась незаписанная речь. Молча терять её нельзя:
+                // так пятнадцать секунд диктовки уходили в пустоту.
+                if attempt == 1, cleaned.isEmpty, !raw.isEmpty {
+                    Log.write("кусок вычистился в ноль: «\(raw)» — переспрашиваю без словаря")
+                    self.transcribe(wav: wav, generation: generation, attempt: 2,
+                                    completion: completion)
+                    return
+                }
                 completion(cleaned)
 
             case .failure(let error):
