@@ -27,12 +27,7 @@ final class RecorderHUD {
         model.phase = .recording
         ensurePanel()
         position()
-        panel?.alphaValue = 0
-        panel?.orderFrontRegardless()
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.16
-            panel?.animator().alphaValue = 1
-        }
+        appear()
 
         levelTimer?.invalidate()
         // 30 кадров в секунду: глазу достаточно, процессору незаметно.
@@ -59,15 +54,31 @@ final class RecorderHUD {
         guard let panel else { return }
 
         let hiding = generation
-        NSAnimationContext.runAnimationGroup({ context in
-            context.duration = 0.18
-            panel.animator().alphaValue = 0
-        }, completionHandler: { [weak self] in
-            // За время затухания могла начаться новая запись — тогда прятать
-            // уже нечего, панель принадлежит ей.
+        model.visible = false
+
+        // Окно убираем после того, как содержимое ужалось и погасло.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.26) { [weak self] in
+            // За это время могла начаться новая запись — тогда прятать уже
+            // нечего, панель принадлежит ей.
             guard let self, self.generation == hiding else { return }
             panel.orderOut(nil)
-        })
+        }
+    }
+
+    /// Появление: содержимое подрастает из центра и проявляется.
+    ///
+    /// Масштабируется именно содержимое, а не окно. У окна фиксированный
+    /// размер, и его рост просто открывал бы вид на неподвижную картинку —
+    /// получилось бы выезжание, а не масштаб.
+    private func appear() {
+        guard let panel else { return }
+        model.visible = false
+        panel.alphaValue = 1
+        panel.orderFrontRegardless()
+        // Даём кадр на отрисовку в сжатом виде, иначе анимации нечего играть.
+        DispatchQueue.main.async { [weak self] in
+            self?.model.visible = true
+        }
     }
 
     private func ensurePanel() {
@@ -100,6 +111,7 @@ final class RecorderHUD {
         panel.setFrameOrigin(NSPoint(x: frame.midX - size.width / 2,
                                      y: frame.minY + 110))
     }
+
 }
 
 @MainActor
@@ -107,6 +119,8 @@ private final class HUDModel: ObservableObject {
     @Published var levels: [CGFloat]
     @Published var phase: RecorderHUD.Phase = .recording
     @Published var color: Color = .white
+    /// Управляет появлением и уходом: содержимое растёт из центра.
+    @Published var visible: Bool = false
 
     private let count = 34
     private var tick: CGFloat = 0
@@ -154,6 +168,9 @@ private struct HUDView: View {
             }
         }
         .frame(width: 260, height: 70)
+        .scaleEffect(model.visible ? 1 : 0.86)
+        .opacity(model.visible ? 1 : 0)
+        .animation(.easeOut(duration: 0.28), value: model.visible)
     }
 
     private var waveform: some View {
