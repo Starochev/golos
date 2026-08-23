@@ -295,29 +295,50 @@ final class Controller {
         state = .transcribing
 
         let generation = recordingGeneration
+        transcribe(wav: wav, generation: generation, attempt: 1)
+    }
+
+    /// Длительность записи по размеру WAV: 16 кГц, 16 бит, моно.
+    private static func duration(ofWav wav: Data) -> TimeInterval {
+        max(0, Double(wav.count - 44) / (16000 * 2))
+    }
+
+    private func transcribe(wav: Data, generation: Int, attempt: Int) {
         whisper.transcribe(wav: wav, prompt: config.promptString) { [weak self] result in
             guard let self else { return }
 
             // Текст вставляем всегда — человек его надиктовал и ждёт. А вот
             // окошко и состояние трогаем, только если новая запись не началась.
             let current = generation == self.recordingGeneration
-            if current { self.hud.hide() }
 
             switch result {
             case .success(let raw):
+                // Модель иногда подставляет вместо речи заученную фразу из
+                // субтитров. Звук при этом нормальный, и со второй попытки
+                // тот же файл распознаётся верно — поэтому просто переспрашиваем.
+                if attempt == 1,
+                   Hallucination.looksInvented(text: raw,
+                                               audioDuration: Self.duration(ofWav: wav)) {
+                    Log.write("похоже на выдумку модели: «\(raw)» — переспрашиваю")
+                    self.transcribe(wav: wav, generation: generation, attempt: 2)
+                    return
+                }
+
                 let text = self.config.applyReplacements(to: raw)
                 Log.write("распознано: \(text)")
                 guard !text.isEmpty else {
-                    if current { self.state = .idle }
+                    if current { self.hud.hide(); self.state = .idle }
                     return
                 }
                 self.lastText = text
+                if current { self.hud.hide() }
                 let mode = Inserter.Mode(rawValue: self.config.insertMode) ?? .paste
                 Inserter.insert(text, mode: mode)
                 if self.config.keepHistory { self.saveHistory(wav: wav, text: text) }
                 if current { self.state = .idle }
             case .failure(let error):
                 guard current else { return }
+                self.hud.hide()
                 let message = error.localizedDescription
                 self.state = .failed(message)
                 // Ошибку показываем несколько секунд и возвращаемся в покой.

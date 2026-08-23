@@ -71,6 +71,19 @@ final class Recorder {
 
         // Меньше 0.3 с — это случайное нажатие, а не речь.
         guard collected.count > 4800 else { return nil }
+
+        // Совсем тихая запись — микрофон не тот, выключен или человек
+        // передумал говорить. Отправлять такое нельзя: на тишине whisper
+        // выдаёт выдуманную фразу из обучающих данных.
+        //
+        // Считаем не пик, а сколько окон содержат звук: пик бесполезен,
+        // потому что приложение само играет сигнал в начале записи и
+        // микрофон его слышит. По той же причине начало пропускаем.
+        guard Recorder.hasSpeech(collected) else {
+            Log.write("в записи нет речи, не отправляю")
+            return nil
+        }
+
         return Recorder.wav(from: collected, sampleRate: 16000)
     }
 
@@ -97,6 +110,33 @@ final class Recorder {
         // в потолок и волна превращается в сплошную стену.
         let db = 20 * log10(rms)
         return min(1, max(0, (db + 60) / 50))
+    }
+
+    /// Есть ли в записи хоть треть секунды звука.
+    ///
+    /// Окно 100 мс, порог примерно −42 дБ: комнатная тишина держится ниже
+    /// −55 дБ, речь идёт в районе −30 дБ, так что порог лежит с запасом
+    /// между ними. Короткий сигнал старта даёт одно окно и не проходит.
+    static func hasSpeech(_ samples: [Float]) -> Bool {
+        let window = 1600                       // 100 мс при 16 кГц
+        let skipStart = 3200                    // 200 мс на собственный сигнал
+        let threshold: Float = 0.008
+        let needed = 3
+
+        guard samples.count > skipStart + window else { return false }
+
+        var loud = 0
+        var index = skipStart
+        while index + window <= samples.count {
+            var sum: Float = 0
+            for i in index..<(index + window) { sum += samples[i] * samples[i] }
+            if sqrt(sum / Float(window)) > threshold {
+                loud += 1
+                if loud >= needed { return true }
+            }
+            index += window
+        }
+        return false
     }
 
     private func append(_ buffer: AVAudioPCMBuffer, from inputFormat: AVAudioFormat) {
