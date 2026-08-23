@@ -11,6 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var transcribePhase: CGFloat = 0
     private let updater = Updater()
     private var toggleItem: NSMenuItem!
+    private var hintItem: NSMenuItem!
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         buildStatusItem()
@@ -20,6 +21,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         installSignalHandlers()
         controller.onCheckUpdates = { [weak self] in self?.updater.checkNowBringingToFront() }
+        controller.onHotkeyChanged = { [weak self] in self?.refreshHint() }
         controller.start()
         render(controller.state)
     }
@@ -64,10 +66,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         menu.addItem(.separator())
 
-        let hint = NSMenuItem(title: "Правый ⌥ — держать; двойной тап — переключатель",
-                              action: nil, keyEquivalent: "")
-        hint.isEnabled = false
-        menu.addItem(hint)
+        hintItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+        hintItem.isEnabled = false
+        menu.addItem(hintItem)
 
         menu.addItem(.separator())
 
@@ -88,6 +89,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(quitItem)
 
         statusItem.menu = menu
+        refreshHint()
+    }
+
+    /// Подсказка называет ту клавишу, что выбрана сейчас.
+    private func refreshHint() {
+        hintItem.title = "\(controller.hotkeyTitle) — держать; двойной тап — переключатель"
     }
 
     private func render(_ state: Controller.State) {

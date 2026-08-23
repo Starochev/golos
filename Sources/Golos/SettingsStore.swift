@@ -15,6 +15,8 @@ final class SettingsStore: ObservableObject {
 
     /// Язык и модель — аргументы запуска движка, их смена требует перезапуска.
     var onEngineRelevantChange: (() -> Void)?
+    /// Клавиша применяется на лету, движок для этого трогать не надо.
+    var onHotkeyChange: (() -> Void)?
 
     private var saveWorkItem: DispatchWorkItem?
     /// Перечитывание с диска — не пользовательская правка, и перезапускать
@@ -37,6 +39,11 @@ final class SettingsStore: ObservableObject {
     private func handleChange(from old: Config) {
         scheduleSave()
         guard !applyingExternalChange else { return }
+        if old.hotkey != config.hotkey {
+            // Пишем сразу: Controller перечитывает конфиг с диска.
+            config.save()
+            onHotkeyChange?()
+        }
         if old.language != config.language || old.modelPath != config.modelPath {
             onEngineRelevantChange?()
         }

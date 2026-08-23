@@ -28,9 +28,16 @@ final class Hotkey {
     private var toggleActive = false
     private var holdActive = false
 
-    /// Правый Option: в flagsChanged приходит keyCode 61 и свой бит в маске.
-    private let rightOptionKeyCode: Int64 = 61
-    private let rightOptionMask: UInt64 = 0x00000040
+    /// Какая клавиша слушается. Меняется на лету — перезапускать перехват
+    /// ради этого не нужно.
+    private var option: HotkeyOption = .fallback
+
+    func setOption(_ newOption: HotkeyOption) {
+        guard newOption.id != option.id else { return }
+        reset()
+        option = newOption
+        Log.write("клавиша записи: \(newOption.title)")
+    }
 
     /// Не запустится без разрешения «Универсальный доступ».
     static func hasAccessibilityPermission(prompt: Bool) -> Bool {
@@ -43,7 +50,11 @@ final class Hotkey {
         self.handler = handler
         guard tap == nil else { return true }
 
-        let mask = (1 << CGEventType.flagsChanged.rawValue) | (1 << CGEventType.keyDown.rawValue)
+        // keyUp нужен для клавиш вроде F13: они, в отличие от модификаторов,
+        // приходят обычными нажатиями, а не сменой флагов.
+        let mask = (1 << CGEventType.flagsChanged.rawValue)
+            | (1 << CGEventType.keyDown.rawValue)
+            | (1 << CGEventType.keyUp.rawValue)
         let this = Unmanaged.passUnretained(self).toOpaque()
 
         guard let port = CGEvent.tapCreate(
@@ -90,13 +101,27 @@ final class Hotkey {
             return
         }
 
+        let code = event.getIntegerValueField(.keyboardEventKeycode)
+        let current = option
+
+        // Обычная клавиша вроде F13 — приходит нажатиями, а не флагами.
+        if !current.isModifier, code == current.keyCode {
+            if type == .keyDown {
+                // Удержание шлёт keyDown пачками — считаем только первый.
+                let repeated = event.getIntegerValueField(.keyboardEventAutorepeat) != 0
+                if !repeated { DispatchQueue.main.async { [weak self] in self?.keyPressed() } }
+            } else if type == .keyUp {
+                DispatchQueue.main.async { [weak self] in self?.keyReleased() }
+            }
+            return
+        }
+
         if type == .keyDown {
-            let code = event.getIntegerValueField(.keyboardEventKeycode)
             if code == Int64(kVK_Escape), toggleActive || holdActive {
                 DispatchQueue.main.async { [weak self] in self?.cancelAll() }
                 return
             }
-            // Правый ⌥ участвует в наборе спецсимволов (⌥+3 и подобное).
+            // Модификатор участвует в наборе спецсимволов (⌥+3 и подобное).
             // Раз при зажатой клавише пошёл обычный набор — это не диктовка,
             // запись сворачиваем молча. В режиме переключателя не мешаем:
             // там печатать во время записи может быть намеренно.
@@ -107,10 +132,12 @@ final class Hotkey {
         }
 
         guard type == .flagsChanged,
-              event.getIntegerValueField(.keyboardEventKeycode) == rightOptionKeyCode
+              current.isModifier,
+              code == current.keyCode,
+              let flagMask = current.flagMask
         else { return }
 
-        let pressed = (event.flags.rawValue & rightOptionMask) != 0
+        let pressed = (event.flags.rawValue & flagMask) != 0
         DispatchQueue.main.async { [weak self] in
             pressed ? self?.keyPressed() : self?.keyReleased()
         }

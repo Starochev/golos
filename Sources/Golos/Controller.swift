@@ -72,6 +72,10 @@ final class Controller {
             settingsStore.onEngineRelevantChange = { [weak self] in
                 self?.scheduleEngineReload()
             }
+            settingsStore.onHotkeyChange = { [weak self] in
+                self?.applyHotkey()
+                self?.onHotkeyChanged?()
+            }
             settingsWindow = SettingsWindow(
                 store: settingsStore,
                 onOpenModelPicker: { [weak self] in self?.showModelPicker() },
@@ -87,8 +91,20 @@ final class Controller {
     /// Цвет волны в строке меню. nil — рисовать шаблоном.
     var menuBarWaveColor: NSColor? { WaveTheme.menuBarColor(for: config) }
 
+    /// Подсказку в меню обновляет AppDelegate — сюда приходит замыканием.
+    var onHotkeyChanged: (() -> Void)?
+
+    /// Текущая клавиша записи — для подсказки в меню.
+    var hotkeyTitle: String { HotkeyOption.named(config.hotkey).title }
+
     /// Проверку обновлений держит AppDelegate — сюда приходит замыканием.
     var onCheckUpdates: (() -> Void)?
+
+    /// Клавишу применяем сразу: перезапускать перехват ради неё не нужно.
+    func applyHotkey() {
+        config = Config.load()
+        hotkey.setOption(HotkeyOption.named(config.hotkey))
+    }
 
     private func scheduleEngineReload() {
         engineReloadWork?.cancel()
@@ -164,6 +180,7 @@ final class Controller {
 
     private func attachHotkey() {
         guard !hotkeyAttached else { return }
+        hotkey.setOption(HotkeyOption.named(config.hotkey))
         let ok = hotkey.start { [weak self] event in
             self?.handle(event)
         }

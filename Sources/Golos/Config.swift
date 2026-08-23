@@ -27,6 +27,8 @@ struct Config: Codable {
     var soundTheme: String = Sounds.defaultThemeID
     /// Показывать ли окошко с живой волной во время записи.
     var showHUD: Bool = true
+    /// Клавиша записи: идентификатор из HotkeyOption.all.
+    var hotkey: String = "rightOption"
     /// Цвет волны: идентификатор темы из WaveTheme.all либо "custom".
     var waveTheme: String = "red"
     /// Свой цвет в виде "#RRGGBB" — используется, когда waveTheme = "custom".
@@ -89,6 +91,7 @@ struct Config: Codable {
         sounds = try c.decodeIfPresent(Bool.self, forKey: .sounds) ?? fallback.sounds
         soundTheme = try c.decodeIfPresent(String.self, forKey: .soundTheme) ?? fallback.soundTheme
         showHUD = try c.decodeIfPresent(Bool.self, forKey: .showHUD) ?? fallback.showHUD
+        hotkey = try c.decodeIfPresent(String.self, forKey: .hotkey) ?? fallback.hotkey
         waveTheme = try c.decodeIfPresent(String.self, forKey: .waveTheme) ?? fallback.waveTheme
         customWaveColor = try c.decodeIfPresent(String.self, forKey: .customWaveColor)
             ?? fallback.customWaveColor

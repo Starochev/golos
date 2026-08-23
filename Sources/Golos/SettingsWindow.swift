@@ -179,6 +179,23 @@ private struct GeneralTab: View {
             }
 
             Section {
+                Picker("Клавиша записи", selection: $store.config.hotkey) {
+                    ForEach(HotkeyOption.all) { option in
+                        Text(option.title).tag(option.id)
+                    }
+                }
+                Text(HotkeyOption.named(store.config.hotkey).note)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                Text("Список закрыт намеренно: обычную букву назначить нельзя, иначе каждое её нажатие уходило бы в диктовку. Применяется сразу.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            } header: {
+                Text("Горячая клавиша").font(.system(size: 12, weight: .semibold))
+            }
+
+            Section {
                 Picker("Язык речи", selection: $store.config.language) {
                     Text("Русский").tag("ru")
                     Text("Английский").tag("en")
@@ -518,8 +535,8 @@ private struct AboutTab: View {
 
             VStack(alignment: .leading, spacing: 6) {
                 Text("Горячие клавиши").font(.system(size: 12, weight: .semibold))
-                shortcut("Держать правый ⌥", "запись, пока держишь")
-                shortcut("Двойной тап по правому ⌥", "запись до следующего тапа")
+                shortcut("Держать \(HotkeyOption.named(Config.load().hotkey).title)", "запись, пока держишь")
+                shortcut("Двойной тап", "запись до следующего тапа")
                 shortcut("Escape во время записи", "отменить без вставки")
             }
 
