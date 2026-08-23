@@ -1,6 +1,6 @@
 {
-  "version": "0.2.1",
-  "url": "https://github.com/Starochev/golos/releases/download/win-v0.2.1/Golos.exe",
-  "sha256": "455EF5AAB17C74E7510BB8924C1152039CB8BF505BFB17732E2C11A92D4FFB53",
-  "notes": "Длинная диктовка больше не теряется, переспрос при выдумке модели, отсев записей без речи."
+  "version": "0.2.2",
+  "url": "https://github.com/Starochev/golos/releases/download/win-v0.2.2/Golos.exe",
+  "sha256": "7BCDADDD1BD3704A35920A71823FB61B42F7E2D1F9D2EFF363BCAD0892EA1270",
+  "notes": "Заученные фразы из субтитров больше не проскакивают — ни целиком, ни приклеенными в конец."
 }
