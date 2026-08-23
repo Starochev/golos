@@ -1,6 +1,6 @@
 {
-  "version": "0.2.4",
-  "url": "https://github.com/Starochev/golos/releases/download/win-v0.2.4/Golos.exe",
-  "sha256": "F571960EFB6F3F99AD43F0BE2651E0746EAF97CE8BF0A3418C7429778CDA7193",
-  "notes": "Ловится зацикливание декодера: одна фраза, повторённая подряд вместо речи."
+  "version": "0.2.5",
+  "url": "https://github.com/Starochev/golos/releases/download/win-v0.2.5/Golos.exe",
+  "sha256": "64B2C0D9942F00B688DF9B997815E33454DAE0C6BDC58784A33EA18E575F30C1",
+  "notes": "Срезается приветствие в начале отрезка длинной записи."
 }
