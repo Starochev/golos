@@ -1,6 +1,6 @@
 {
-  "version": "0.2.3",
-  "url": "https://github.com/Starochev/golos/releases/download/win-v0.2.3/Golos.exe",
-  "sha256": "C75B155FC8FC873A9202A42CFE7FA593ADC2DD26A64054D04204504564E366D7",
-  "notes": "Заученная концовка срезается, даже если приклеена без разделителя."
+  "version": "0.2.4",
+  "url": "https://github.com/Starochev/golos/releases/download/win-v0.2.4/Golos.exe",
+  "sha256": "F571960EFB6F3F99AD43F0BE2651E0746EAF97CE8BF0A3418C7429778CDA7193",
+  "notes": "Ловится зацикливание декодера: одна фраза, повторённая подряд вместо речи."
 }
