@@ -1,6 +1,6 @@
 {
-  "version": "0.2.5",
-  "url": "https://github.com/Starochev/golos/releases/download/win-v0.2.5/Golos.exe",
-  "sha256": "64B2C0D9942F00B688DF9B997815E33454DAE0C6BDC58784A33EA18E575F30C1",
-  "notes": "Срезается приветствие в начале отрезка длинной записи."
+  "version": "0.2.6",
+  "url": "https://github.com/Starochev/golos/releases/download/win-v0.2.6/Golos.exe",
+  "sha256": "651263EF9D3EACE971BDFDAF8DFA00B933DAD42FF255CFD1DC20E1EA2F990B90",
+  "notes": "Переспрос без словаря, когда кусок записи не разобрался."
 }
