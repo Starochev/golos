@@ -342,7 +342,8 @@ final class Controller {
                                     completion: completion)
                     return
                 }
-                completion(raw)
+                // Заученная фраза цепляется и в хвост куска — срезаем до склейки.
+                completion(Hallucination.strippingTrailingInvention(raw))
 
             case .failure(let error):
                 // Окошко и состояние трогаем, только если новая запись
@@ -366,7 +367,7 @@ final class Controller {
     /// Всё распознано — вставляем и прибираем состояние.
     private func finish(text raw: String, wav: Data, generation: Int) {
         let current = generation == recordingGeneration
-        let text = config.applyReplacements(to: raw)
+        let text = config.applyReplacements(to: Hallucination.strippingTrailingInvention(raw))
         Log.write("распознано: \(text)")
 
         guard !text.isEmpty else {
