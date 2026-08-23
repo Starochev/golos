@@ -9,6 +9,7 @@ final class Recorder {
     private var samples: [Float] = []
     private let lock = NSLock()
     private(set) var isRunning = false
+    private var configurationObserver: NSObjectProtocol?
 
     /// Формат, в котором копим сэмплы.
     private let target = AVAudioFormat(commonFormat: .pcmFormatFloat32,
@@ -54,12 +55,65 @@ final class Recorder {
             throw RecorderError.engineFailed(error.localizedDescription)
         }
         isRunning = true
+        watchConfigurationChanges()
+    }
+
+    /// Поднимает движок обратно, если система его остановила.
+    ///
+    /// Стоит начаться воспроизведению или переключиться гарнитуре — macOS
+    /// перенастраивает аудиоустройство и глушит движок. Захват при этом
+    /// прекращается молча: запись обрывается на середине, а человек узнаёт
+    /// об этом только по куску текста вместо всей фразы.
+    private func watchConfigurationChanges() {
+        guard configurationObserver == nil else { return }
+        configurationObserver = NotificationCenter.default.addObserver(
+            forName: .AVAudioEngineConfigurationChange,
+            object: engine,
+            queue: .main
+        ) { [weak self] _ in
+            self?.restartAfterConfigurationChange()
+        }
+    }
+
+    private func restartAfterConfigurationChange() {
+        guard isRunning else { return }
+        Log.write("аудиоустройство перенастроено, поднимаю запись заново")
+
+        let input = engine.inputNode
+        let inputFormat = input.inputFormat(forBus: 0)
+        input.removeTap(onBus: 0)
+
+        // Формат мог смениться вместе с устройством — конвертер тоже.
+        guard inputFormat.sampleRate > 0,
+              let conv = AVAudioConverter(from: inputFormat, to: target) else {
+            Log.write("после перенастройки формат не поддержан, запись прервана")
+            isRunning = false
+            return
+        }
+        converter = conv
+
+        input.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { [weak self] buffer, _ in
+            self?.append(buffer, from: inputFormat)
+        }
+
+        engine.prepare()
+        do {
+            try engine.start()
+        } catch {
+            Log.write("движок не поднялся после перенастройки: \(error.localizedDescription)")
+            isRunning = false
+        }
     }
 
     /// Останавливает запись и отдаёт готовый WAV. nil — если писать было нечего.
     func stop() -> Data? {
         guard isRunning else { return nil }
         isRunning = false
+
+        if let configurationObserver {
+            NotificationCenter.default.removeObserver(configurationObserver)
+            self.configurationObserver = nil
+        }
         engine.inputNode.removeTap(onBus: 0)
         engine.stop()
         converter = nil

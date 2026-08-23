@@ -295,7 +295,28 @@ final class Controller {
         state = .transcribing
 
         let generation = recordingGeneration
-        transcribe(wav: wav, generation: generation, attempt: 1)
+        let parts = AudioSplit.chunks(wav: wav)
+        if parts.count > 1 {
+            Log.write("запись длинная, режу на \(parts.count) куска")
+        }
+        transcribeChunks(parts, index: 0, collected: [], wav: wav, generation: generation)
+    }
+
+    /// Куски идут по очереди: сервер один и обрабатывает запросы
+    /// последовательно, параллелить нечего.
+    private func transcribeChunks(_ parts: [Data], index: Int, collected: [String],
+                                  wav: Data, generation: Int) {
+        guard index < parts.count else {
+            finish(text: collected.joined(separator: " "), wav: wav, generation: generation)
+            return
+        }
+        transcribe(wav: parts[index], generation: generation, attempt: 1) { [weak self] piece in
+            guard let self else { return }
+            var next = collected
+            if let piece, !piece.isEmpty { next.append(piece) }
+            self.transcribeChunks(parts, index: index + 1, collected: next,
+                                  wav: wav, generation: generation)
+        }
     }
 
     /// Длительность записи по размеру WAV: 16 кГц, 16 бит, моно.
@@ -303,41 +324,30 @@ final class Controller {
         max(0, Double(wav.count - 44) / (16000 * 2))
     }
 
-    private func transcribe(wav: Data, generation: Int, attempt: Int) {
+    private func transcribe(wav: Data, generation: Int, attempt: Int,
+                            completion: @escaping (String?) -> Void) {
         whisper.transcribe(wav: wav, prompt: config.promptString) { [weak self] result in
             guard let self else { return }
-
-            // Текст вставляем всегда — человек его надиктовал и ждёт. А вот
-            // окошко и состояние трогаем, только если новая запись не началась.
-            let current = generation == self.recordingGeneration
 
             switch result {
             case .success(let raw):
                 // Модель иногда подставляет вместо речи заученную фразу из
                 // субтитров. Звук при этом нормальный, и со второй попытки
-                // тот же файл распознаётся верно — поэтому просто переспрашиваем.
+                // тот же файл распознаётся верно — поэтому переспрашиваем.
                 if attempt == 1,
                    Hallucination.looksInvented(text: raw,
                                                audioDuration: Self.duration(ofWav: wav)) {
                     Log.write("похоже на выдумку модели: «\(raw)» — переспрашиваю")
-                    self.transcribe(wav: wav, generation: generation, attempt: 2)
+                    self.transcribe(wav: wav, generation: generation, attempt: 2,
+                                    completion: completion)
                     return
                 }
+                completion(raw)
 
-                let text = self.config.applyReplacements(to: raw)
-                Log.write("распознано: \(text)")
-                guard !text.isEmpty else {
-                    if current { self.hud.hide(); self.state = .idle }
-                    return
-                }
-                self.lastText = text
-                if current { self.hud.hide() }
-                let mode = Inserter.Mode(rawValue: self.config.insertMode) ?? .paste
-                Inserter.insert(text, mode: mode)
-                if self.config.keepHistory { self.saveHistory(wav: wav, text: text) }
-                if current { self.state = .idle }
             case .failure(let error):
-                guard current else { return }
+                // Окошко и состояние трогаем, только если новая запись
+                // не началась: иначе погасим чужое.
+                guard generation == self.recordingGeneration else { completion(nil); return }
                 self.hud.hide()
                 let message = error.localizedDescription
                 self.state = .failed(message)
@@ -348,8 +358,28 @@ final class Controller {
                     guard let self, case .failed(let shown) = self.state, shown == message else { return }
                     self.state = .idle
                 }
+                completion(nil)
             }
         }
+    }
+
+    /// Всё распознано — вставляем и прибираем состояние.
+    private func finish(text raw: String, wav: Data, generation: Int) {
+        let current = generation == recordingGeneration
+        let text = config.applyReplacements(to: raw)
+        Log.write("распознано: \(text)")
+
+        guard !text.isEmpty else {
+            if current { hud.hide(); state = .idle }
+            return
+        }
+
+        lastText = text
+        if current { hud.hide() }
+        let mode = Inserter.Mode(rawValue: config.insertMode) ?? .paste
+        Inserter.insert(text, mode: mode)
+        if config.keepHistory { saveHistory(wav: wav, text: text) }
+        if current { state = .idle }
     }
 
     // MARK: - Мелочи
