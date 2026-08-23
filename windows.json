@@ -1,6 +1,6 @@
 {
-  "version": "0.2.0",
-  "url": "https://github.com/Starochev/golos/releases/download/win-v0.2.0/Golos.exe",
-  "sha256": "FE29816427A8DB8C3E8D60A40B4316A9482066C643FC1BA553B4115040FA0BD0",
-  "notes": "Окошко с живой волной, свои сигналы, выбор цвета, выбор модели, смена клавиши записи, автозапуск."
+  "version": "0.2.1",
+  "url": "https://github.com/Starochev/golos/releases/download/win-v0.2.1/Golos.exe",
+  "sha256": "455EF5AAB17C74E7510BB8924C1152039CB8BF505BFB17732E2C11A92D4FFB53",
+  "notes": "Длинная диктовка больше не теряется, переспрос при выдумке модели, отсев записей без речи."
 }
