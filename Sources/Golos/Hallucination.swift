@@ -199,4 +199,49 @@ enum Hallucination {
     private static func normalizedGroup(_ words: [String], _ start: Int, _ size: Int) -> String {
         normalize(words[start..<(start + size)].joined(separator: " "))
     }
+
+    // MARK: - Начало куска
+
+    /// Приветствия, которыми декодер «разогревается» на старте отрезка.
+    ///
+    /// Проверяются только у кусков со второго: в начале самой диктовки
+    /// приветствие законно, а в середине фразы, разрезанной пополам, — нет.
+    private static let leadingPhrases: [String] = [
+        "всем привет",
+        "привет всем",
+        "всем здравствуйте",
+        "здравствуйте всем",
+        "добрый день",
+        "добрый вечер",
+        "спасибо за просмотр",
+        "продолжение следует",
+        "субтитры сделал",
+        "редактор субтитров"
+    ]
+
+    /// Сколько слов должно остаться после среза начала.
+    private static let minimumAfterLeading = 4
+    private static let maxLeadingWords = 4
+
+    /// Срезает приветствие, приклеенное в начало куска.
+    ///
+    /// Применять только к кускам со второго — иначе съест законное
+    /// приветствие в начале речи.
+    static func strippingLeadingInvention(_ text: String) -> String {
+        var words = text.split(whereSeparator: { $0.isWhitespace }).map(String.init)
+
+        while true {
+            var cut = 0
+            for headCount in 1...maxLeadingWords where words.count - headCount >= minimumAfterLeading {
+                let head = words.prefix(headCount).joined(separator: " ")
+                if leadingPhrases.contains(normalize(head)) { cut = headCount }
+            }
+            guard cut > 0 else { break }
+
+            Log.write("срезал приклеенное в начало: «\(words.prefix(cut).joined(separator: " "))»")
+            words.removeFirst(cut)
+        }
+
+        return words.joined(separator: " ")
+    }
 }

@@ -313,7 +313,13 @@ final class Controller {
         transcribe(wav: parts[index], generation: generation, attempt: 1) { [weak self] piece in
             guard let self else { return }
             var next = collected
-            if let piece, !piece.isEmpty { next.append(piece) }
+            if var piece, !piece.isEmpty {
+                // Первый кусок начинается там же, где речь: приветствие в нём
+                // законно. Со второго начало — это середина разрезанной фразы,
+                // и приветствие там придумано.
+                if index > 0 { piece = Hallucination.strippingLeadingInvention(piece) }
+                if !piece.isEmpty { next.append(piece) }
+            }
             self.transcribeChunks(parts, index: index + 1, collected: next,
                                   wav: wav, generation: generation)
         }
