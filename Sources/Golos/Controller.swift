@@ -28,8 +28,10 @@ final class Controller {
     private let hotkey = Hotkey()
     private var whisper: Whisper
 
-    /// Отбрасывать ли результат текущей записи (короткий тап, Escape).
-    private var discardCurrent = false
+    /// Номер текущей записи. Распознавание идёт асинхронно, и к моменту
+    /// ответа пользователь мог начать следующую диктовку — тогда результат
+    /// старой не должен трогать ни окошко, ни состояние.
+    private var recordingGeneration = 0
     /// Опрос разрешения, пока его не выдадут.
     private var permissionTimer: Timer?
     private var hotkeyAttached = false
@@ -239,7 +241,7 @@ final class Controller {
         }
         // Словарь мог поменяться между диктовками — перечитываем.
         config = Config.load()
-        discardCurrent = false
+        recordingGeneration += 1
 
         do {
             try recorder.start()
@@ -275,27 +277,38 @@ final class Controller {
         hud.markTranscribing()
         state = .transcribing
 
+        let generation = recordingGeneration
         whisper.transcribe(wav: wav, prompt: config.promptString) { [weak self] result in
             guard let self else { return }
-            self.hud.hide()
+
+            // Текст вставляем всегда — человек его надиктовал и ждёт. А вот
+            // окошко и состояние трогаем, только если новая запись не началась.
+            let current = generation == self.recordingGeneration
+            if current { self.hud.hide() }
+
             switch result {
             case .success(let raw):
                 let text = self.config.applyReplacements(to: raw)
                 Log.write("распознано: \(text)")
                 guard !text.isEmpty else {
-                    self.state = .idle
+                    if current { self.state = .idle }
                     return
                 }
                 self.lastText = text
                 let mode = Inserter.Mode(rawValue: self.config.insertMode) ?? .paste
                 Inserter.insert(text, mode: mode)
                 if self.config.keepHistory { self.saveHistory(wav: wav, text: text) }
-                self.state = .idle
+                if current { self.state = .idle }
             case .failure(let error):
-                self.state = .failed(error.localizedDescription)
-                // Ошибку показываем, но работать продолжаем.
+                guard current else { return }
+                let message = error.localizedDescription
+                self.state = .failed(message)
+                // Ошибку показываем несколько секунд и возвращаемся в покой.
+                // Сверяем текст: за это время могла случиться другая, ещё
+                // не решённая беда, и гасить её сообщение нельзя.
                 DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in
-                    if case .failed = self?.state { self?.state = .idle }
+                    guard let self, case .failed(let shown) = self.state, shown == message else { return }
+                    self.state = .idle
                 }
             }
         }

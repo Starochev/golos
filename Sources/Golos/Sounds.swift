@@ -59,30 +59,33 @@ enum Sounds {
 
     // MARK: - Синтез
 
-    private static var cache: [String: Data] = [:]
-    private static var players: [AVAudioPlayer] = []
+    /// По одному готовому плееру на каждый сигнал.
+    ///
+    /// Раньше плеер создавался на каждое воспроизведение и складывался в массив,
+    /// а чистился условием `!isPlaying && currentTime > 0`. Условие никогда не
+    /// выполнялось: после проигрывания AVAudioPlayer возвращает currentTime = 0,
+    /// поэтому объекты копились по два на каждую диктовку и не освобождались.
+    /// Переиспользование снимает вопрос: плееров ровно столько, сколько
+    /// сигналов, и живут они до конца работы приложения.
+    private static var players: [String: AVAudioPlayer] = [:]
     private static let lock = NSLock()
 
     private static func play(tone: Tone, key: String) {
         lock.lock()
-        let data: Data
-        if let cached = cache[key] {
-            data = cached
+        let player: AVAudioPlayer?
+        if let existing = players[key] {
+            player = existing
         } else {
-            data = wav(for: tone)
-            cache[key] = data
+            player = try? AVAudioPlayer(data: wav(for: tone))
+            player?.prepareToPlay()
+            players[key] = player
         }
         lock.unlock()
 
-        guard let player = try? AVAudioPlayer(data: data) else { return }
-        player.prepareToPlay()
+        guard let player else { return }
+        // Повторный play() без перемотки продолжил бы с конца и молчал.
+        player.currentTime = 0
         player.play()
-
-        // Плеер должен дожить до конца воспроизведения — держим ссылку.
-        lock.lock()
-        players.append(player)
-        players.removeAll { !$0.isPlaying && $0.currentTime > 0 }
-        lock.unlock()
     }
 
     private static func wav(for tone: Tone) -> Data {

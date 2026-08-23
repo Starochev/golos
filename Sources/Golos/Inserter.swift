@@ -27,11 +27,24 @@ enum Inserter {
         pb.setString(text, forType: .string)
     }
 
+    /// Содержимое буфера до нашей первой вставки. Живёт, пока не отработает
+    /// отложенное восстановление.
+    private static var savedSnapshot: [[NSPasteboard.PasteboardType: Data]]?
+    private static var pendingRestore: DispatchWorkItem?
+
     /// Схема superwhisper: сохранить содержимое буфера, подставить своё,
     /// синтезировать Cmd+V, вернуть как было.
     private static func pasteViaClipboard(_ text: String) {
         let pb = NSPasteboard.general
-        let saved = snapshot(of: pb)
+
+        // Две диктовки подряд успевают наложиться: восстановление отложено,
+        // и в буфере ещё лежит наш прошлый текст. Снять его как «исходный»
+        // значило бы затереть содержимое пользователя нашим же выводом,
+        // поэтому снимок делаем только когда восстановление не в очереди.
+        if pendingRestore == nil {
+            savedSnapshot = snapshot(of: pb)
+        }
+        pendingRestore?.cancel()
 
         pb.clearContents()
         pb.setString(text, forType: .string)
@@ -39,9 +52,13 @@ enum Inserter {
         postCommandV()
 
         // Вернуть буфер сразу нельзя: приложение-получатель читает его асинхронно.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-            restore(saved, to: pb)
+        let work = DispatchWorkItem {
+            if let saved = savedSnapshot { restore(saved, to: pb) }
+            savedSnapshot = nil
+            pendingRestore = nil
         }
+        pendingRestore = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: work)
     }
 
     /// Снимок буфера: у одного элемента бывает несколько представлений

@@ -14,9 +14,13 @@ final class RecorderHUD {
     private let model = HUDModel()
     private var levelTimer: Timer?
     private var levelSource: (() -> Float)?
+    /// Номер показа. Затухание прячет панель не сразу, и без этого счётчика
+    /// отложенный orderOut убирал бы окно, показанное уже для новой записи.
+    private var generation = 0
 
     /// Показать окошко и начать опрашивать громкость.
     func show(color: NSColor, levelSource: @escaping () -> Float) {
+        generation += 1
         self.levelSource = levelSource
         model.color = Color(color)
         model.reset()
@@ -53,10 +57,15 @@ final class RecorderHUD {
         levelTimer?.invalidate()
         levelTimer = nil
         guard let panel else { return }
+
+        let hiding = generation
         NSAnimationContext.runAnimationGroup({ context in
             context.duration = 0.18
             panel.animator().alphaValue = 0
-        }, completionHandler: {
+        }, completionHandler: { [weak self] in
+            // За время затухания могла начаться новая запись — тогда прятать
+            // уже нечего, панель принадлежит ей.
+            guard let self, self.generation == hiding else { return }
             panel.orderOut(nil)
         })
     }

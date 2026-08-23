@@ -38,7 +38,11 @@ struct Config: Codable {
     /// распознавания, а не копить гигабайты голоса на диске.
     var historyRetentionHours: Int = 1
 
-    struct Replacement: Codable {
+    struct Replacement: Codable, Identifiable {
+        /// Собственный идентификатор, а не поле from: в списке настроек from
+        /// редактируется, и если опознавать строки по нему, то две пустые
+        /// строки станут неразличимы, а ввод текста будет ронять фокус.
+        var id: UUID = UUID()
         var from: String
         var to: String
         /// true — сопоставлять без учёта регистра.
@@ -52,6 +56,7 @@ struct Config: Codable {
 
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
+            id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
             from = try c.decodeIfPresent(String.self, forKey: .from) ?? ""
             to = try c.decodeIfPresent(String.self, forKey: .to) ?? ""
             ignoreCase = try c.decodeIfPresent(Bool.self, forKey: .ignoreCase) ?? true
@@ -72,7 +77,11 @@ struct Config: Codable {
         language = try c.decodeIfPresent(String.self, forKey: .language) ?? fallback.language
         modelPath = try c.decodeIfPresent(String.self, forKey: .modelPath) ?? fallback.modelPath
         vadModelPath = try c.decodeIfPresent(String.self, forKey: .vadModelPath) ?? fallback.vadModelPath
-        vocabulary = try c.decodeIfPresent([String].self, forKey: .vocabulary) ?? fallback.vocabulary
+        // Словарь показывается списком, где строка сама себе идентификатор,
+        // поэтому дубли из правленого руками файла надо убрать сразу.
+        let rawVocabulary = try c.decodeIfPresent([String].self, forKey: .vocabulary) ?? fallback.vocabulary
+        var seen = Set<String>()
+        vocabulary = rawVocabulary.filter { seen.insert($0.lowercased()).inserted }
         replacements = try c.decodeIfPresent([Replacement].self, forKey: .replacements) ?? fallback.replacements
         insertMode = try c.decodeIfPresent(String.self, forKey: .insertMode) ?? fallback.insertMode
         port = try c.decodeIfPresent(Int.self, forKey: .port) ?? fallback.port

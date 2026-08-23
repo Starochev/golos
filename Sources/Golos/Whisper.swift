@@ -4,11 +4,32 @@ import Foundation
 /// Модель на 3 ГБ грузится 3–4 секунды, поэтому дёргать CLI на каждую фразу
 /// нельзя — резидентный сервер даёт около секунды на десять секунд речи.
 final class Whisper {
-    private var process: Process?
     private let port: Int
     private let config: Config
-    private(set) var ready = false
-    private(set) var lastError: String?
+
+    /// Состояние трогают два потока: главный читает ready перед записью,
+    /// фоновый пишет его, дождавшись загрузки модели. Поэтому под замком.
+    private let stateLock = NSLock()
+    private var storedProcess: Process?
+    private var storedReady = false
+    private var storedError: String?
+    /// Растёт на каждый stop(). Фоновый запуск сверяется с ним, чтобы не
+    /// подсунуть процесс, который уже никому не нужен.
+    private var generation = 0
+
+    var ready: Bool {
+        stateLock.lock(); defer { stateLock.unlock() }
+        return storedReady
+    }
+
+    var lastError: String? {
+        stateLock.lock(); defer { stateLock.unlock() }
+        return storedError
+    }
+
+    private func setError(_ message: String?) {
+        stateLock.lock(); storedError = message; stateLock.unlock()
+    }
 
     init(config: Config) {
         self.config = config
@@ -68,16 +89,20 @@ final class Whisper {
     /// Поднимает сервер и ждёт готовности. Вызывать при старте приложения,
     /// чтобы первая же диктовка была тёплой.
     func start(completion: @escaping (Result<Void, Error>) -> Void) {
-        guard process == nil else { completion(.success(())); return }
+        stateLock.lock()
+        let alreadyRunning = storedProcess != nil
+        let launchGeneration = generation
+        stateLock.unlock()
+        guard !alreadyRunning else { completion(.success(())); return }
 
         guard let bin = Whisper.enginePath() else {
-            lastError = WhisperError.serverMissing.localizedDescription
+            setError(WhisperError.serverMissing.localizedDescription)
             completion(.failure(WhisperError.serverMissing)); return
         }
         guard !config.modelPath.isEmpty,
               FileManager.default.fileExists(atPath: config.modelPath) else {
             let e = WhisperError.modelMissing(config.modelPath)
-            lastError = e.localizedDescription
+            setError(e.localizedDescription)
             completion(.failure(e)); return
         }
 
@@ -94,49 +119,80 @@ final class Whisper {
             args += ["--vad", "-vm", config.vadModelPath]
         }
 
-        // Прошлый экземпляр приложения мог умереть, не прибрав за собой:
-        // сервер держит порт и зря занимает память под модель.
-        Whisper.killStrays(port: port)
-
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: bin)
-        p.arguments = args
-        p.environment = Whisper.childEnvironment
-        p.standardOutput = FileHandle.nullDevice
-        p.standardError = FileHandle.nullDevice
-
-        do {
-            try p.run()
-        } catch {
-            lastError = error.localizedDescription
-            completion(.failure(error)); return
-        }
-        process = p
-
-        // Ждём, пока модель прогрузится: сервер начинает отвечать только после этого.
+        // Всё дальнейшее — на фоновой очереди. killStrays ждёт завершения
+        // pkill и спит треть секунды, а start() вызывается с главного потока:
+        // раньше на это время подвисали и меню, и окно настроек.
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self else { return }
+
+            // Прошлый экземпляр приложения мог умереть, не прибрав за собой:
+            // сервер держит порт и зря занимает память под модель.
+            Whisper.killStrays(port: self.port)
+
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: bin)
+            p.arguments = args
+            p.environment = Whisper.childEnvironment
+            p.standardOutput = FileHandle.nullDevice
+            p.standardError = FileHandle.nullDevice
+
+            do {
+                try p.run()
+            } catch {
+                self.setError(error.localizedDescription)
+                DispatchQueue.main.async { completion(.failure(error)) }
+                return
+            }
+
+            // Пока поднимались, могли успеть вызвать stop() — тогда процесс
+            // никому не нужен и его надо снять, а не записывать в поле.
+            self.stateLock.lock()
+            let stale = self.generation != launchGeneration
+            if !stale { self.storedProcess = p }
+            self.stateLock.unlock()
+            if stale {
+                p.terminate()
+                return
+            }
+
+            // Ждём, пока модель прогрузится: сервер начинает отвечать только после этого.
             let deadline = Date().addingTimeInterval(180)
             while Date() < deadline {
                 if self.ping() {
-                    self.ready = true
-                    self.lastError = nil
+                    self.stateLock.lock()
+                    let current = self.generation == launchGeneration
+                    if current {
+                        self.storedReady = true
+                        self.storedError = nil
+                    }
+                    self.stateLock.unlock()
+                    guard current else { return }
                     DispatchQueue.main.async { completion(.success(())) }
                     return
                 }
                 if p.isRunning == false { break }
+
+                self.stateLock.lock()
+                let current = self.generation == launchGeneration
+                self.stateLock.unlock()
+                guard current else { return }
+
                 Thread.sleep(forTimeInterval: 0.25)
             }
             let e = WhisperError.notReady
-            self.lastError = e.localizedDescription
+            self.setError(e.localizedDescription)
             DispatchQueue.main.async { completion(.failure(e)) }
         }
     }
 
     func stop() {
-        process?.terminate()
-        process = nil
-        ready = false
+        stateLock.lock()
+        let p = storedProcess
+        storedProcess = nil
+        storedReady = false
+        generation += 1
+        stateLock.unlock()
+        p?.terminate()
     }
 
     /// Снимает whisper-server, оставшиеся от прошлых запусков на нашем порту.

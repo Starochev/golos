@@ -457,7 +457,7 @@ private struct ReplacementsTab: View {
             .foregroundStyle(.secondary)
 
             List {
-                ForEach($store.config.replacements, id: \.from) { $item in
+                ForEach($store.config.replacements) { $item in
                     HStack(spacing: 8) {
                         TextField("верселе", text: $item.from)
                             .textFieldStyle(.roundedBorder)
@@ -467,7 +467,7 @@ private struct ReplacementsTab: View {
                         TextField("Vercel", text: $item.to)
                             .textFieldStyle(.roundedBorder)
                         Button {
-                            store.config.replacements.removeAll { $0.from == item.from && $0.to == item.to }
+                            store.config.replacements.removeAll { $0.id == item.id }
                         } label: {
                             Image(systemName: "minus.circle")
                         }

@@ -167,11 +167,47 @@ final class ModelDownloader: NSObject, URLSessionDownloadDelegate {
         DispatchQueue.main.async { self.onProgress?(progress) }
     }
 
+    enum DownloadError: LocalizedError {
+        case badStatus(Int)
+        case tooSmall(Int64)
+
+        var errorDescription: String? {
+            switch self {
+            case .badStatus(let code):
+                return "Сервер ответил \(code) вместо файла модели"
+            case .tooSmall(let bytes):
+                return "Скачалось всего \(bytes) байт — это не модель"
+            }
+        }
+    }
+
     func urlSession(_ session: URLSession,
                     downloadTask: URLSessionDownloadTask,
                     didFinishDownloadingTo location: URL) {
         guard let destination else { return }
         let fm = FileManager.default
+
+        // URLSession зовёт этот метод на любой завершённый ответ, включая 404.
+        // Без проверки страница с ошибкой уехала бы в файл модели и выдалась
+        // за успешную загрузку, а разбираться пришлось бы уже по невнятному
+        // «сервер распознавания не готов».
+        let code = (downloadTask.response as? HTTPURLResponse)?.statusCode ?? 0
+        guard (200..<300).contains(code) else {
+            try? fm.removeItem(at: location)
+            DispatchQueue.main.async { self.onFinish?(.failure(DownloadError.badStatus(code))) }
+            return
+        }
+
+        let attributes = try? fm.attributesOfItem(atPath: location.path)
+        let size = (attributes?[.size] as? NSNumber)?.int64Value ?? 0
+        // Самая маленькая модель в каталоге — 450 МБ, детектор речи — 800 КБ.
+        // Всё, что меньше сотни килобайт, это страница-заглушка, а не модель.
+        guard size > 100_000 else {
+            try? fm.removeItem(at: location)
+            DispatchQueue.main.async { self.onFinish?(.failure(DownloadError.tooSmall(size))) }
+            return
+        }
+
         do {
             // Временный файл живёт до выхода из метода — переносим сразу.
             if fm.fileExists(atPath: destination.path) { try fm.removeItem(at: destination) }

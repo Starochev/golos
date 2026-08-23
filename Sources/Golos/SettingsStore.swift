@@ -17,6 +17,10 @@ final class SettingsStore: ObservableObject {
     var onEngineRelevantChange: (() -> Void)?
 
     private var saveWorkItem: DispatchWorkItem?
+    /// Перечитывание с диска — не пользовательская правка, и перезапускать
+    /// из-за него движок нельзя: тот, кто вызвал reloadFromDisk, уже сам
+    /// разобрался с движком, а второй перезапуск оборвал бы загрузку модели.
+    private var applyingExternalChange = false
 
     init() {
         config = Config.load()
@@ -25,11 +29,14 @@ final class SettingsStore: ObservableObject {
     /// Перечитать с диска — если файл правили руками, пока окно было закрыто.
     func reloadFromDisk() {
         saveWorkItem?.cancel()
+        applyingExternalChange = true
         config = Config.load()
+        applyingExternalChange = false
     }
 
     private func handleChange(from old: Config) {
         scheduleSave()
+        guard !applyingExternalChange else { return }
         if old.language != config.language || old.modelPath != config.modelPath {
             onEngineRelevantChange?()
         }
