@@ -1,6 +1,6 @@
 {
-  "version": "0.2.6",
-  "url": "https://github.com/Starochev/golos/releases/download/win-v0.2.6/Golos.exe",
-  "sha256": "651263EF9D3EACE971BDFDAF8DFA00B933DAD42FF255CFD1DC20E1EA2F990B90",
-  "notes": "Переспрос без словаря, когда кусок записи не разобрался."
+  "version": "0.2.7",
+  "url": "https://github.com/Starochev/golos/releases/download/win-v0.2.7/Golos.exe",
+  "sha256": "08AFC77C763329666164A6D9E4F63F2EE9ECB30C5FA4AC5F84EE365D90D06CB7",
+  "notes": "Расшифровка файлов перетаскиванием, с тайм-кодами. Свой ffmpeg для ogg и opus."
 }
