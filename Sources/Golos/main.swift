@@ -20,6 +20,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.render(state)
         }
         installSignalHandlers()
+
+        // Запуск с путями к файлам: «Golos --transcribe запись.mp4».
+        // Годится и для пачек из терминала.
+        let arguments = Array(CommandLine.arguments.dropFirst())
+        if let flag = arguments.firstIndex(of: "--transcribe") {
+            let files = arguments[(flag + 1)...].map { URL(fileURLWithPath: $0) }
+            if !files.isEmpty {
+                DispatchQueue.main.async { [weak self] in self?.controller.transcribeFiles(files) }
+            }
+        }
+
         controller.onCheckUpdates = { [weak self] in self?.updater.checkNowBringingToFront() }
         controller.onHotkeyChanged = { [weak self] in self?.refreshHint() }
         controller.start()
@@ -69,6 +80,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hintItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
         hintItem.isEnabled = false
         menu.addItem(hintItem)
+
+        menu.addItem(.separator())
+
+        let transcribeItem = NSMenuItem(title: "Расшифровать файл…",
+                                        action: #selector(openTranscribe), keyEquivalent: "")
+        transcribeItem.target = self
+        menu.addItem(transcribeItem)
 
         menu.addItem(.separator())
 
@@ -172,6 +190,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func copyLast() { controller.copyLastAgain() }
 
     @objc private func openSettings() { controller.showSettings() }
+
+    @objc private func openTranscribe() { controller.showFileTranscription() }
 
     @objc private func checkForUpdates() { updater.checkNowBringingToFront() }
 

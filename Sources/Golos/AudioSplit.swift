@@ -15,6 +15,36 @@ enum AudioSplit {
     /// Раньше этого рез не ищем, иначе куски выйдут рваные.
     private static let minChunkSeconds: Double = 14
 
+    /// Кусок вместе с его началом в исходной записи — нужно, чтобы
+    /// пересчитать тайм-коды при расшифровке файла.
+    struct Chunk {
+        let wav: Data
+        let startSeconds: Double
+    }
+
+    static func chunksWithOffsets(wav: Data) -> [Chunk] {
+        let samples = decode(wav)
+        let maxLength = Int(maxChunkSeconds * Double(sampleRate))
+        guard samples.count > maxLength else {
+            return [Chunk(wav: wav, startSeconds: 0)]
+        }
+
+        var parts: [Chunk] = []
+        var start = 0
+        while start < samples.count {
+            let offset = Double(start) / Double(sampleRate)
+            let remaining = samples.count - start
+            if remaining <= maxLength {
+                parts.append(Chunk(wav: encode(Array(samples[start...])), startSeconds: offset))
+                break
+            }
+            let cut = start + quietestCut(in: samples, from: start)
+            parts.append(Chunk(wav: encode(Array(samples[start..<cut])), startSeconds: offset))
+            start = cut
+        }
+        return parts
+    }
+
     static func chunks(wav: Data) -> [Data] {
         let samples = decode(wav)
         let maxLength = Int(maxChunkSeconds * Double(sampleRate))

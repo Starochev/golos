@@ -165,6 +165,33 @@ private struct GeneralTab: View {
             }
 
             Section {
+                HStack {
+                    Text("Куда класть расшифровки")
+                    Spacer()
+                    Text(folderTitle)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.head)
+                    Button("Выбрать…") { chooseFolder() }
+                    if !store.config.fileOutputFolder.isEmpty {
+                        Button("Рядом с файлом") { store.config.fileOutputFolder = "" }
+                    }
+                }
+                Text("По умолчанию расшифровка ложится рядом с исходным файлом. Рядом же появляется файл субтитров.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Toggle("Оставлять переконвертированный звук", isOn: $store.config.keepConvertedAudio)
+                Text("Для распознавания файл приводится к моно 16 кГц. Обычно этот wav не нужен, но иногда удобно послушать ровно то, что слышала модель.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            } header: {
+                Text("Расшифровка файлов").font(.system(size: 12, weight: .semibold))
+            }
+
+            Section {
                 Picker("Куда девать текст", selection: $store.config.insertMode) {
                     Text("Вставлять в активное поле").tag("paste")
                     Text("Набирать посимвольно").tag("type")
@@ -218,6 +245,21 @@ private struct GeneralTab: View {
             }
         }
         .formStyle(.grouped)
+    }
+
+    private var folderTitle: String {
+        let stored = store.config.fileOutputFolder
+        return stored.isEmpty ? "рядом с файлом" : (stored as NSString).abbreviatingWithTildeInPath
+    }
+
+    private func chooseFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        if panel.runModal() == .OK, let url = panel.url {
+            store.config.fileOutputFolder = url.path
+        }
     }
 
     /// Проигрываем обе метки подряд — так слышно пару целиком.

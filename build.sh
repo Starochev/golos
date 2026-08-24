@@ -25,6 +25,16 @@ cp .build/release/Golos "$APP/Contents/MacOS/Golos"
 cp vendor/whisper-server "$APP/Contents/Helpers/whisper-server"
 cp vendor/whisper.cpp-LICENSE "$APP/Contents/Resources/whisper.cpp-LICENSE"
 
+# Урезанный ffmpeg — для webm, mkv, ogg и opus, которые система не читает.
+# Не обязателен: без него эти форматы просто не откроются, остальное работает.
+if [ -x vendor/ffmpeg ]; then
+    cp vendor/ffmpeg "$APP/Contents/Helpers/ffmpeg"
+    cp vendor/ffmpeg-LICENSE "$APP/Contents/Resources/ffmpeg-LICENSE"
+    cp vendor/ffmpeg-SOURCE "$APP/Contents/Resources/ffmpeg-SOURCE"
+else
+    echo "Нет vendor/ffmpeg — webm и ogg открываться не будут. Лечится: ./build-ffmpeg.sh"
+fi
+
 # Иконка. Пересобрать после правки рисунка: ./icon/build-icon.sh
 if [ -f icon/AppIcon.icns ]; then
     cp icon/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
@@ -75,6 +85,9 @@ else
 fi
 
 codesign --force --sign "$SIGN" "$APP/Contents/Helpers/whisper-server"
+if [ -f "$APP/Contents/Helpers/ffmpeg" ]; then
+    codesign --force --sign "$SIGN" "$APP/Contents/Helpers/ffmpeg"
+fi
 find "$APP/Contents/Frameworks/Sparkle.framework" -type f -perm +111 -print0 2>/dev/null \
     | xargs -0 -I{} codesign --force --sign "$SIGN" {} 2>/dev/null || true
 codesign --force --sign "$SIGN" "$APP/Contents/Frameworks/Sparkle.framework"

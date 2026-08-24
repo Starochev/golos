@@ -33,6 +33,10 @@ struct Config: Codable {
     var waveTheme: String = "red"
     /// Свой цвет в виде "#RRGGBB" — используется, когда waveTheme = "custom".
     var customWaveColor: String = "#7CE0FF"
+    /// Куда класть расшифровки файлов. Пусто — рядом с исходником.
+    var fileOutputFolder: String = ""
+    /// Оставлять ли рядом с расшифровкой переконвертированный wav.
+    var keepConvertedAudio: Bool = false
     /// Хранить ли wav и расшифровку в ~/Documents/Golos/history.
     var keepHistory: Bool = true
     /// Через сколько часов удалять записи. 0 — не удалять никогда.
@@ -95,6 +99,10 @@ struct Config: Codable {
         waveTheme = try c.decodeIfPresent(String.self, forKey: .waveTheme) ?? fallback.waveTheme
         customWaveColor = try c.decodeIfPresent(String.self, forKey: .customWaveColor)
             ?? fallback.customWaveColor
+        fileOutputFolder = try c.decodeIfPresent(String.self, forKey: .fileOutputFolder)
+            ?? fallback.fileOutputFolder
+        keepConvertedAudio = try c.decodeIfPresent(Bool.self, forKey: .keepConvertedAudio)
+            ?? fallback.keepConvertedAudio
         keepHistory = try c.decodeIfPresent(Bool.self, forKey: .keepHistory) ?? fallback.keepHistory
         historyRetentionHours = try c.decodeIfPresent(Int.self, forKey: .historyRetentionHours)
             ?? fallback.historyRetentionHours

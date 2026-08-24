@@ -106,12 +106,14 @@ final class Whisper {
             completion(.failure(e)); return
         }
 
+        // Без -nt: тогда сервер отдаёт сегменты с временем, и тот же движок
+        // годится для расшифровки файлов. На диктовку это не влияет — там
+        // берётся поле text, а оно остаётся чистым.
         var args = [
             "-m", config.modelPath,
             "--port", String(port),
             "--host", "127.0.0.1",
-            "-t", String(config.threads),
-            "-nt"
+            "-t", String(config.threads)
         ]
         if config.language != "auto" { args += ["-l", config.language] }
         if !config.vadModelPath.isEmpty,
@@ -226,6 +228,20 @@ final class Whisper {
     /// Отправляет WAV на распознавание. prompt смещает декодер к латинице
     /// для терминов из словаря.
     func transcribe(wav: Data, prompt: String, completion: @escaping (Result<String, Error>) -> Void) {
+        request(wav: wav, prompt: prompt, verbose: false) { result in
+            switch result {
+            case .failure(let error): completion(.failure(error))
+            case .success(let object):
+                guard let text = object["text"] as? String else {
+                    completion(.failure(WhisperError.badResponse)); return
+                }
+                completion(.success(Whisper.clean(text)))
+            }
+        }
+    }
+
+    private func request(wav: Data, prompt: String, verbose: Bool,
+                         completion: @escaping (Result<[String: Any], Error>) -> Void) {
         guard ready, let url = URL(string: "http://127.0.0.1:\(port)/inference") else {
             completion(.failure(WhisperError.notReady)); return
         }
@@ -244,7 +260,7 @@ final class Whisper {
         body.append(wav)
         body.append(Data("\r\n".utf8))
 
-        field("response_format", "json")
+        field("response_format", verbose ? "verbose_json" : "json")
         field("temperature", "0")
         if config.language != "auto" { field("language", config.language) }
         if !prompt.isEmpty { field("prompt", prompt) }
@@ -271,13 +287,48 @@ final class Whisper {
                 DispatchQueue.main.async { completion(.failure(WhisperError.http(code, body))) }
                 return
             }
-            guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let text = obj["text"] as? String else {
+            guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
                 DispatchQueue.main.async { completion(.failure(WhisperError.badResponse)) }
                 return
             }
-            DispatchQueue.main.async { completion(.success(Whisper.clean(text))) }
+            DispatchQueue.main.async { completion(.success(obj)) }
         }.resume()
+    }
+
+    /// Отрезок распознанного текста с временем от начала записи.
+    struct Segment {
+        var start: Double
+        var end: Double
+        var text: String
+        /// Отрезок продолжает слово предыдущего: whisper иногда рвёт слово
+        /// пополам, и у продолжения нет ведущего пробела — «стар» и «ую».
+        var joinsPreviousWord: Bool = false
+    }
+
+    /// Распознавание с тайм-кодами — для расшифровки файлов.
+    func transcribeSegments(wav: Data, prompt: String,
+                            completion: @escaping (Result<[Segment], Error>) -> Void) {
+        request(wav: wav, prompt: prompt, verbose: true) { result in
+            switch result {
+            case .failure(let error):
+                completion(.failure(error))
+            case .success(let object):
+                guard let raw = object["segments"] as? [[String: Any]] else {
+                    completion(.success([]))
+                    return
+                }
+                let segments = raw.compactMap { item -> Segment? in
+                    guard let text = item["text"] as? String else { return nil }
+                    let clean = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !clean.isEmpty else { return nil }
+                    return Segment(start: item["start"] as? Double ?? 0,
+                                   end: item["end"] as? Double ?? 0,
+                                   text: clean,
+                                   joinsPreviousWord: !text.hasPrefix(" "))
+                }
+                completion(.success(segments))
+            }
+        }
     }
 
     /// Сервер режет ответ по сегментам и вставляет переводы строк там, где в речи

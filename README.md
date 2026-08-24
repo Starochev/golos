@@ -56,6 +56,19 @@
 правый ⇧ или F13–F16. Список закрытый намеренно: свободный захват позволил бы
 назначить букву — и каждое её нажатие уходило бы в диктовку.
 
+## Расшифровка файла
+
+«Расшифровать файл…» в меню открывает окно, куда можно перетащить запись:
+встречу, интервью, голосовое сообщение. Рядом с исходником ложатся два файла:
+`.txt` абзацами с тайм-кодами и `.srt` для видеоредакторов. Папку вывода
+можно поменять в настройках, там же выбирается судьба промежуточного WAV:
+оставить или удалить.
+
+Звук из mp4, mov, m4a, mp3, wav, aiff и flac достаёт сама система. Matroska
+и Ogg она не читает вовсе, поэтому для webm, mkv, ogg и opus в приложении
+лежит свой ffmpeg, урезанный до разбора звука: 2,3 МБ вместо 52 у полного.
+Строка сборки записана в `build-ffmpeg.sh`, лицензия LGPL лежит внутри бандла.
+
 ## Настройки
 
 Меню в строке состояния → **Настройки…** (или ⌘,). Четыре вкладки:
@@ -112,6 +125,8 @@
 | `soundTheme` | `soft`, `bell` или `quiet` |
 | `waveTheme` | `red`, `teal`, `violet`, `amber`, `mono` или `custom` |
 | `customWaveColor` | Свой цвет в виде `#RRGGBB` |
+| `fileOutputFolder` | Куда класть расшифровки файлов, пусто значит рядом с исходником |
+| `keepConvertedAudio` | Оставлять ли WAV, полученный из видео |
 
 ## Как устроено
 
@@ -137,6 +152,7 @@ whisper.cpp внутри бандла, модель уже в памяти
 ```bash
 brew install cmake
 ./build-engine.sh     # собирает whisper.cpp статически, разово
+./build-ffmpeg.sh     # урезанный ffmpeg для webm и ogg, разово
 ./setup-signing.sh    # локальный сертификат, разово
 ./build.sh
 open Golos.app
@@ -172,6 +188,9 @@ open Golos.app
 | `RecorderHUD.swift` | Окошко с живой волной во время записи |
 | `MenuBarIcon.swift` | Иконка в строке меню и её состояния |
 | `WaveTheme.swift` | Цвета волны и разбор своего цвета |
+| `MediaDecoder.swift` | Звук из чужих форматов: система, иначе свой ffmpeg |
+| `FileTranscriber.swift` | Расшифровка файла с тайм-кодами, `.txt` и `.srt` |
+| `TranscribeWindow.swift` | Окно перетаскивания и очередь файлов |
 | `Updater.swift` | Автообновления через Sparkle |
 | `Controller.swift` | Склейка всего перечисленного |
 | `main.swift` | Иконка и меню в строке меню |
@@ -290,6 +309,8 @@ Graphics, `icon/build-icon.sh` собирает `AppIcon.icns`.
 
 - [whisper.cpp](https://github.com/ggml-org/whisper.cpp) — распознавание, MIT
 - [Sparkle](https://github.com/sparkle-project/Sparkle) — обновления, MIT
+- [ffmpeg](https://ffmpeg.org): звук из webm, mkv, ogg и opus, LGPL 2.1,
+  собран без GPL-частей, исходники не изменялись
 - Модели [ggerganov/whisper.cpp](https://huggingface.co/ggerganov/whisper.cpp) на HuggingFace
 
 Лицензия — MIT.

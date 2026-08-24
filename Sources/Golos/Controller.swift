@@ -37,6 +37,9 @@ final class Controller {
     private var hotkeyAttached = false
     private var setupWindow: SetupWindow?
     private var settingsWindow: SettingsWindow?
+    private var transcribeWindow: TranscribeWindow?
+    /// Файлы, пришедшие до готовности движка.
+    private var pendingFiles: [URL] = []
     private lazy var settingsStore = SettingsStore()
     /// Смена языка или модели требует перезапуска движка. Гасим дребезг:
     /// пока пользователь щёлкает по списку, перезапускать нет смысла.
@@ -116,6 +119,31 @@ final class Controller {
         }
         engineReloadWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8, execute: work)
+    }
+
+    /// Поставить файлы в очередь расшифровки.
+    func transcribeFiles(_ urls: [URL]) {
+        showFileTranscription()
+        // Движок мог ещё не подняться — тогда ждём и ставим в очередь потом.
+        if whisper.ready {
+            transcribeWindow?.enqueue(urls)
+        } else {
+            pendingFiles += urls
+        }
+    }
+
+    /// Окно расшифровки файлов.
+    func showFileTranscription() {
+        if transcribeWindow == nil {
+            transcribeWindow = TranscribeWindow(
+                makeTranscriber: { [weak self] in
+                    guard let self, self.whisper.ready else { return nil }
+                    return FileTranscriber(whisper: self.whisper)
+                },
+                currentConfig: { Config.load() }
+            )
+        }
+        transcribeWindow?.show()
     }
 
     /// Окно выбора модели: при первом запуске и по пункту меню.
@@ -199,6 +227,11 @@ final class Controller {
             switch result {
             case .success:
                 Log.write("сервер распознавания готов")
+                if !self.pendingFiles.isEmpty {
+                    let waiting = self.pendingFiles
+                    self.pendingFiles = []
+                    self.transcribeWindow?.enqueue(waiting)
+                }
                 // Пока нет доступа к клавиатуре, предупреждение важнее готовности.
                 guard self.hotkeyAttached else { return }
                 self.state = .idle
