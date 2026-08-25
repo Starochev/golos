@@ -31,8 +31,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
-        // «Golos --probe-media» — разведка кнопок пультов: что присылает
-        // гарнитура, AirPods или приёмник радиосистемы. Пишет в журнал.
+        // «Golos --probe-media» — разведка кнопок пультов и медиаклавиш:
+        // что именно присылает железка. Пишет в журнал.
         if arguments.contains("--probe-media") {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) { MediaProbe.start(seconds: 900) }
         }

@@ -230,7 +230,7 @@ private struct GeneralTab: View {
                         Text(device.name).tag(device.name)
                     }
                 }
-                Text("Система меняет микрофон сама: подключились AirPods — и запись пойдёт с них, хотя говоришь ты в гарнитуру. Выбранный здесь не поменяется без спроса. Сейчас система отдаёт «\(AudioDevices.defaultInputName())».")
+                Text("Система меняет микрофон сама, стоит подключиться новому устройству, и запись уходит не туда. Выбранный здесь не поменяется без спроса. Сейчас система отдаёт «\(AudioDevices.defaultInputName())».")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -257,7 +257,7 @@ private struct GeneralTab: View {
                         Text(option.title).tag(option.id)
                     }
                 }
-                Text("Работает наравне с основной. Пригодится, когда провод гарнитуры не всегда под рукой: не нужно лезть в настройки, чтобы переключиться туда и обратно.")
+                Text("Работает наравне с основной. Удобно, когда до основной не всегда дотянуться, а лезть в настройки ради этого не хочется.")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
