@@ -586,10 +586,13 @@ private struct CandidatesTab: View {
                     .onSubmit { accept(candidate) }
                 Button("В словарь") { accept(candidate) }
                     .disabled(draft(for: candidate).isEmpty)
-                Button("Не спрашивать") { candidates.ignore(candidate) }
+                    .help("Занести написание в словарь распознавания")
+                Button("Всё верно") { candidates.markCorrect(candidate) }
+                    .help("Слово распознано правильно. Больше о нём не спросят")
                 Button("Скрыть") { candidates.dismiss(candidate) }
                     .buttonStyle(.borderless)
                     .foregroundStyle(.secondary)
+                    .help("Убрать из списка сейчас. Слово вернётся, если распознавание споткнётся о него снова")
             }
         }
     }
@@ -601,7 +604,7 @@ private struct CandidatesTab: View {
                 get: { store.config.collectCandidates },
                 set: { store.config.collectCandidates = $0 }
             ))
-            Text("Разбор идёт фоном, уже после того как текст вставлен: на саму диктовку он не влияет. Кандидат без ответа исчезает сам через неделю, «не спрашивать» держится три месяца.")
+            Text("Разбор идёт фоном, уже после того как текст вставлен: на саму диктовку он не влияет. Кандидат без ответа исчезает сам через неделю, решённое молчит три месяца.")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

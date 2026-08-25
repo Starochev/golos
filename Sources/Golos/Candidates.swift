@@ -39,14 +39,16 @@ final class Candidates: ObservableObject {
     static let minimumHits = 1
     /// Сколько живёт кандидат, о котором не приняли решения.
     static let lifetimeDays = 7.0
-    /// «Не спрашивать» тоже стареет: слово могло попасть туда по ошибке,
-    /// а вечный чёрный список никто потом не разбирает.
-    static let ignoreLifetimeDays = 90.0
+    /// Сколько молчит слово, по которому решение принято. Не навсегда:
+    /// нажать можно и по ошибке, а вечный список никто потом не разбирает.
+    static let settledLifetimeDays = 90.0
 
     @Published private(set) var pending: [Candidate] = []
 
     private var seen: [String: Candidate] = [:]
-    private var ignored: [String: Date] = [:]
+    /// Слова, по которым решение уже принято: ушли в словарь или отмечены
+    /// как верно распознанные. О них не спрашивают повторно.
+    private var settled: [String: Date] = [:]
 
     private static var fileURL: URL {
         Config.directory.appendingPathComponent("candidates.json")
@@ -81,7 +83,7 @@ final class Candidates: ObservableObject {
             guard key.count >= Candidates.minimumLength,
                   !Candidates.stopWords.contains(key),
                   key.contains(where: { $0.isLetter }),
-                  ignored[key] == nil,
+                  settled[key] == nil,
                   !RussianDictionary.shared.knows(key)
             else { continue }
 
@@ -107,12 +109,15 @@ final class Candidates: ObservableObject {
 
     // MARK: - Ответы
 
-    func ignore(_ candidate: Candidate) {
-        ignored[candidate.id] = Date()
+    /// «Всё верно»: слово распознано правильно, вопрос закрыт.
+    func markCorrect(_ candidate: Candidate) {
+        settled[candidate.id] = Date()
         seen[candidate.id] = nil
         purgeAndSave()
     }
 
+    /// «Скрыть»: решения нет. Слово уходит из списка, но вернётся,
+    /// когда распознавание споткнётся о него снова.
     func dismiss(_ candidate: Candidate) {
         seen[candidate.id] = nil
         purgeAndSave()
@@ -121,7 +126,7 @@ final class Candidates: ObservableObject {
     /// Слово ушло в словарь. Спрашивать о нём больше не надо: даже если
     /// модель по-прежнему в нём сомневается, решение уже принято.
     func accepted(_ candidate: Candidate) {
-        ignored[candidate.id] = Date()
+        settled[candidate.id] = Date()
         seen[candidate.id] = nil
         purgeAndSave()
     }
@@ -135,6 +140,7 @@ final class Candidates: ObservableObject {
 
     private struct Storage: Codable {
         var seen: [String: Candidate]
+        /// Имя ключа в файле осталось прежним, чтобы уже собранное не потерялось.
         var ignored: [String: Date]
     }
 
@@ -143,17 +149,17 @@ final class Candidates: ObservableObject {
               let storage = try? JSONDecoder.golos.decode(Storage.self, from: data)
         else { refreshPending(); return }
         seen = storage.seen
-        ignored = storage.ignored
+        settled = storage.ignored
         purgeAndSave()
     }
 
     private func purgeAndSave() {
         let now = Date()
         seen = seen.filter { now.timeIntervalSince($0.value.lastSeen) < Candidates.lifetimeDays * 86400 }
-        ignored = ignored.filter { now.timeIntervalSince($0.value) < Candidates.ignoreLifetimeDays * 86400 }
+        settled = settled.filter { now.timeIntervalSince($0.value) < Candidates.settledLifetimeDays * 86400 }
         refreshPending()
 
-        let storage = Storage(seen: seen, ignored: ignored)
+        let storage = Storage(seen: seen, ignored: settled)
         if let data = try? JSONEncoder.golos.encode(storage) {
             try? FileManager.default.createDirectory(at: Config.directory,
                                                      withIntermediateDirectories: true)
