@@ -213,10 +213,32 @@ final class Hotkey {
 
         let flags = data & 0x0000_FFFF
         let pressed = ((flags & 0xFF00) >> 8) == 0x0A
-        DispatchQueue.main.async { [weak self] in
-            pressed ? self?.keyPressed(from: hit.id) : self?.keyReleased(from: hit.id)
-        }
+        // Отпускание не нужно: у кнопки пульта жест другой, см. mediaPressed.
+        if pressed { DispatchQueue.main.async { [weak self] in self?.mediaPressed(from: hit.id) } }
         return true
+    }
+
+    /// Кнопка пульта работает переключателем, а не рацией, и это не прихоть.
+    ///
+    /// На четырёхконтактном проводе кнопка устроена так, что пока её держат,
+    /// микрофонная линия замкнута и микрофон молчит. Замерено: три записи
+    /// подряд с зажатой кнопкой дали пик ровно 0.0000, а та же гарнитура
+    /// с клавиши на клавиатуре пишет нормально.
+    ///
+    /// Поэтому: нажал — пошла запись, нажал ещё раз — закончилась. Между
+    /// нажатиями кнопка отпущена, и микрофон слышит.
+    private func mediaPressed(from id: String) {
+        if let active = activeKeyID, active != id { return }
+
+        if toggleActive {
+            toggleActive = false
+            activeKeyID = nil
+            handler?(.toggleOff)
+        } else {
+            toggleActive = true
+            activeKeyID = id
+            handler?(.toggleOn)
+        }
     }
 
     private func cancelAll() {
