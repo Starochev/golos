@@ -1,0 +1,24 @@
+ffmpeg 7.1.1, https://ffmpeg.org/releases/ffmpeg-7.1.1.tar.xz
+Исходники не изменялись. Собрано строкой:
+
+  --disable-everything \
+  --disable-autodetect \
+  --disable-doc \
+  --disable-network \
+  --disable-debug \
+  --enable-small \
+  --disable-programs \
+  --enable-ffmpeg \
+  --enable-demuxer=matroska,ogg,mov,mp3,wav,flac,aac,asf,avi,aiff,caf,w64,mpegts,flv,ac3,wv,ape \
+  --enable-decoder=opus,vorbis,aac,aac_latm,mp3,mp3float,flac,alac,ac3,eac3,mp2,wmav1,wmav2,wavpack,ape,pcm_s16le,pcm_s16be,pcm_s24le,pcm_s32le,pcm_f32le,pcm_f64le,pcm_u8,pcm_alaw,pcm_mulaw \
+  --enable-parser=opus,vorbis,aac,aac_latm,mpegaudio,flac,ac3 \
+  --enable-protocol=file,pipe \
+  --enable-filter=aresample,aformat,anull,atrim \
+  --enable-muxer=wav \
+  --enable-encoder=pcm_s16le \
+  --enable-cross-compile \
+  --cross-prefix=x86_64-w64-mingw32- \
+  --arch=x86_64 \
+  --target-os=mingw32 \
+  --pkg-config=false \
+  --extra-ldflags=-static \

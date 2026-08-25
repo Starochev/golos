@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>Golos</AssemblyName>
+    <RootNamespace>Golos</RootNamespace>
+    <Version>0.2.8</Version>
+    <!-- Один файл без установленного рантайма: другу не придётся ничего доставлять. -->
+    <PublishSingleFile>true</PublishSingleFile>
+    <SelfContained>true</SelfContained>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <ApplicationIcon>golos.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="NAudio" Version="2.2.1" />
+  </ItemGroup>
+
+  <!-- Внутрь exe, а не рядом с ним: обновление подменяет один файл,
+       и соседи потерялись бы. Оба достаются наружу при первой надобности.
+       ffmpeg — для форматов, которые Media Foundation не читает.
+       engine-cpu.zip — процессорная сборка whisper.cpp, чтобы приложение
+       работало сразу после скачивания. Сборка под видеокарту весит
+       больше полугигабайта и качается по кнопке в настройках. -->
+  <ItemGroup>
+    <EmbeddedResource Include="ffmpeg.exe" LogicalName="ffmpeg.exe" />
+    <EmbeddedResource Include="engine-cpu.zip" LogicalName="engine-cpu.zip" />
+    <EmbeddedResource Include="whisper.cpp-LICENSE.txt" LogicalName="whisper.cpp-LICENSE.txt" />
+    <EmbeddedResource Include="ffmpeg-LICENSE.txt" LogicalName="ffmpeg-LICENSE.txt" />
+    <EmbeddedResource Include="ffmpeg-SOURCE.txt" LogicalName="ffmpeg-SOURCE.txt" />
+  </ItemGroup>
+
+</Project>
