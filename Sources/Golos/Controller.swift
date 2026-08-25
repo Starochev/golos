@@ -58,6 +58,7 @@ final class Controller {
     func start() {
         Log.write("запуск")
         purgeHistory()
+        History.compressLeftovers()
         requestMicrophone()
         startHotkey()
 
@@ -505,6 +506,7 @@ final class Controller {
         // что приложение своё дело сделало и текст можно достать заново
         // пунктом меню «Скопировать последний текст».
         Log.write("вставлено \(text.count) знаков, способ «\(config.insertMode)»")
+        Stats.add(characters: text.count, seconds: Controller.duration(ofWav: wav))
         if config.keepHistory { saveHistory(wav: wav, text: text) }
         if current { state = .idle }
         if current { collectCandidates(wav: wav, generation: generation) }
@@ -557,9 +559,15 @@ final class Controller {
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
 
         let stamp = ISO8601DateFormatter.filenameSafe.string(from: Date())
-        try? wav.write(to: dir.appendingPathComponent("\(stamp).wav"))
+        let wavURL = dir.appendingPathComponent("\(stamp).wav")
+        try? wav.write(to: wavURL)
         try? text.write(to: dir.appendingPathComponent("\(stamp).txt"), atomically: true, encoding: .utf8)
         purgeHistory()
+
+        // WAV весит 1,9 МБ на минуту, и при хранении сутками история пухнет
+        // до гигабайта. Пережимаем в m4a: в семь раз меньше, играет двойным
+        // щелчком в любом плеере. Фоном, чтобы не задерживать диктовку.
+        History.compress(wavURL)
     }
 
     /// Чистит старые записи. Голос на диске — вещь чувствительная, и держать

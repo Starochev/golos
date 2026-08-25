@@ -687,6 +687,75 @@ private struct CandidatesTab: View {
     }
 }
 
+/// Сколько наговорено за всё время. Цифра в знаках сама по себе пустая,
+/// поэтому рядом то же самое в страницах и в сэкономленном времени.
+private struct StatsView: View {
+    private let stats = Stats.load()
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Сколько наговорено").font(.system(size: 12, weight: .semibold))
+
+            if stats.dictations == 0 {
+                Text("Пока ничего. Счёт пойдёт с первой диктовки.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            } else {
+                Text("\(number(stats.characters)) знаков за \(number(stats.dictations)) \(plural(stats.dictations, "диктовку", "диктовки", "диктовок"))")
+                    .font(.system(size: 13, weight: .medium))
+
+                Text(comparison)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    /// Сравнения, ради которых всё и затевалось: голая цифра ни о чём.
+    private var comparison: String {
+        var lines: [String] = []
+        lines.append("Это \(pages) и столько же несделанных нажатий на клавиши.")
+
+        let saved = stats.typingHours - stats.speakingHours
+        if saved > 0.05 {
+            lines.append("Набирать это руками со скоростью 200 знаков в минуту заняло бы \(hours(stats.typingHours)), наговорил ты за \(hours(stats.speakingHours)). Разница \(hours(saved)).")
+        }
+        return lines.joined(separator: " ")
+    }
+
+    private var pages: String {
+        let value = stats.pages
+        if value < 1 { return "меньше страницы текста" }
+        return String(format: "%.0f %@ текста", value.rounded(), plural(Int(value.rounded()), "страница", "страницы", "страниц"))
+    }
+
+    private func hours(_ value: Double) -> String {
+        if value < 1 {
+            let minutes = Int((value * 60).rounded())
+            return "\(minutes) \(plural(minutes, "минуту", "минуты", "минут"))"
+        }
+        return String(format: "%.1f %@", value, plural(Int(value.rounded()), "час", "часа", "часов"))
+    }
+
+    private func number(_ value: Int) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.groupingSeparator = " "
+        return formatter.string(from: NSNumber(value: value)) ?? "\(value)"
+    }
+
+    private func plural(_ n: Int, _ one: String, _ few: String, _ many: String) -> String {
+        let tens = n % 100
+        if tens >= 11 && tens <= 14 { return many }
+        switch n % 10 {
+        case 1: return one
+        case 2...4: return few
+        default: return many
+        }
+    }
+}
+
 /// Проигрывает кусочек записи из копилки кандидатов.
 ///
 /// Проигрыватель один на всех и переиспользуется: у AVAudioPlayer нет
@@ -783,6 +852,10 @@ private struct AboutTab: View {
             Text("Голосовой ввод с распознаванием на этом Маке. Записи никуда не отправляются.")
                 .font(.system(size: 12))
                 .fixedSize(horizontal: false, vertical: true)
+
+            Divider()
+
+            StatsView()
 
             Divider()
 
