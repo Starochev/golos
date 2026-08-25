@@ -240,20 +240,6 @@ private struct GeneralTab: View {
                 Text("Горячая клавиша").font(.system(size: 12, weight: .semibold))
             }
 
-            Section {
-                Picker("Клавиша голосового", selection: $store.config.voiceHotkey) {
-                    Text("Выключено").tag("")
-                    ForEach(HotkeyOption.all.filter { $0.id != store.config.hotkey }) { option in
-                        Text(option.title).tag(option.id)
-                    }
-                }
-                Text("Отдельная клавиша для голосового сообщения. Держишь, говоришь, отпускаешь — запись сжимается и ложится в буфер файлом, вставляй в чат обычным Cmd+V. Распознавание при этом не запускается: отправляется звук, а не текст.")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            } header: {
-                Text("Голосовое сообщение").font(.system(size: 12, weight: .semibold))
-            }
 
             Section {
                 Picker("Язык речи", selection: $store.config.language) {
@@ -753,10 +739,7 @@ private struct AboutTab: View {
                 shortcut("Держать \(HotkeyOption.named(Config.load().hotkey).title)", "запись, пока держишь")
                 shortcut("Двойной тап", "запись до следующего тапа")
                 shortcut("Escape во время записи", "отменить без вставки")
-                if !Config.load().voiceHotkey.isEmpty {
-                    shortcut("Держать \(HotkeyOption.named(Config.load().voiceHotkey).title)",
-                             "голосовое сообщение в буфер")
-                }
+                shortcut("Переключатель в окошке", "отдать записанное текстом или звуком")
             }
 
             Divider()

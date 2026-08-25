@@ -11,7 +11,7 @@ import SwiftUI
 /// не претендует.
 @MainActor
 final class RecorderHUD {
-    enum Phase { case recording, transcribing }
+    enum Phase: Equatable { case recording, transcribing, message(String) }
 
     /// Чем отдать запись: текстом в активное поле или звуком в буфер.
     enum Mode { case text, audio }
@@ -57,6 +57,21 @@ final class RecorderHUD {
         levelTimer?.invalidate()
         levelTimer = nil
         model.phase = .transcribing
+    }
+
+    /// Короткая надпись вместо волны: «Пакую…», потом «В буфере».
+    /// Без неё непонятно, сработало ли: сигнал конца записи одинаков
+    /// и для текста, и для звука.
+    func showMessage(_ text: String, hideAfter: TimeInterval? = nil) {
+        levelTimer?.invalidate()
+        levelTimer = nil
+        model.phase = .message(text)
+        guard let hideAfter else { return }
+        let shown = generation
+        DispatchQueue.main.asyncAfter(deadline: .now() + hideAfter) { [weak self] in
+            guard let self, self.generation == shown else { return }
+            self.hide()
+        }
     }
 
     func hide() {
@@ -204,7 +219,9 @@ private struct HUDView: View {
                     modeSwitch
                 }
             case .transcribing:
-                transcribing
+                note("Распознаю…", pulsing: true)
+            case .message(let text):
+                note(text, pulsing: false)
             }
         }
         .frame(width: 260, height: 108)
@@ -259,10 +276,17 @@ private struct HUDView: View {
             .animation(.easeOut(duration: 0.2), value: model.mode)
     }
 
-    private var transcribing: some View {
+    private func note(_ text: String, pulsing: Bool) -> some View {
         HStack(spacing: 8) {
-            PulsingDot(color: model.color)
-            Text("Распознаю…")
+            if pulsing {
+                PulsingDot(color: model.color)
+            } else {
+                Circle()
+                    .fill(model.color.opacity(0.9))
+                    .frame(width: 8, height: 8)
+                    .shadow(color: model.color.opacity(0.7), radius: 5)
+            }
+            Text(text)
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(.white.opacity(0.9))
         }

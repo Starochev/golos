@@ -43,8 +43,6 @@ final class Controller {
     private lazy var settingsStore = SettingsStore()
     /// Слова, в которых модель сомневалась. Заполняется фоном после диктовки.
     private lazy var candidates = Candidates()
-    /// Голосовое готово и лежит в буфере: строка меню показывает это секунду.
-    var onVoiceReady: ((Int) -> Void)?
     /// Смена языка или модели требует перезапуска движка. Гасим дребезг:
     /// пока пользователь щёлкает по списку, перезапускать нет смысла.
     private var engineReloadWork: DispatchWorkItem?
@@ -112,7 +110,6 @@ final class Controller {
     func applyHotkey() {
         config = Config.load()
         hotkey.setOption(HotkeyOption.named(config.hotkey))
-        hotkey.setVoiceOption(config.voiceHotkey.isEmpty ? nil : HotkeyOption.named(config.voiceHotkey))
     }
 
     private func scheduleEngineReload() {
@@ -218,10 +215,6 @@ final class Controller {
         let ok = hotkey.start { [weak self] event in
             self?.handle(event)
         }
-        hotkey.onVoice { [weak self] event in
-            self?.handleVoice(event)
-        }
-        hotkey.setVoiceOption(config.voiceHotkey.isEmpty ? nil : HotkeyOption.named(config.voiceHotkey))
         if ok {
             hotkeyAttached = true
             Log.write("горячая клавиша слушается")
@@ -278,45 +271,6 @@ final class Controller {
         }
     }
 
-    private func handleVoice(_ event: Hotkey.VoiceEvent) {
-        switch event {
-        case .start: beginVoice()
-        case .finish: endVoice(discard: false)
-        case .cancel: endVoice(discard: true)
-        }
-    }
-
-    /// Голосовое сообщение: пишем и кладём в буфер файлом.
-    /// Распознавание не запускается вовсе — отправлять собираются звук.
-    private func beginVoice() {
-        guard !recorder.isRunning else { return }
-        config = Config.load()
-        recordingGeneration += 1
-        do {
-            try recorder.start()
-            state = .recording
-            play(.start)
-            if config.showHUD {
-                hud.show(color: WaveTheme.color(for: config)) { [weak self] in
-                    self?.recorder.level ?? 0
-                }
-            }
-        } catch {
-            state = .failed(error.localizedDescription)
-        }
-    }
-
-    private func endVoice(discard: Bool) {
-        guard recorder.isRunning else { return }
-        let wav = recorder.stop()
-        hud.hide()
-        state = .idle
-        guard !discard, let wav else { return }
-
-        play(.stop)
-        exportVoice(wav: wav)
-    }
-
     /// Пакует запись в голосовое и кладёт в буфер файлом.
     private func exportVoice(wav: Data) {
         VoiceMessage.copyToClipboard(wav: wav) { [weak self] result in
@@ -324,9 +278,10 @@ final class Controller {
             case .success(let url):
                 let seconds = Int(Controller.duration(ofWav: wav).rounded())
                 Log.write("голосовое в буфере: \(url.lastPathComponent), \(seconds) с")
-                self?.onVoiceReady?(seconds)
+                self?.hud.showMessage("В буфере, \(seconds) с", hideAfter: 1.4)
             case .failure(let error):
                 Log.write("голосовое не собралось: \(error.localizedDescription)")
+                self?.hud.hide()
                 self?.state = .failed(error.localizedDescription)
             }
         }
@@ -390,9 +345,9 @@ final class Controller {
         // Переключатель в окошке решает, чем отдать надиктованное.
         // Звуком — значит распознавать нечего, сразу пакуем и кладём в буфер.
         if config.showHUD, hud.mode == .audio {
-            hud.hide()
             state = .idle
             play(.stop)
+            hud.showMessage("Пакую…")
             exportVoice(wav: wav)
             return
         }
