@@ -42,8 +42,7 @@ struct HotkeyOption: Identifiable, Hashable {
         HotkeyOption(id: "f15", title: "F15", keyCode: 113, flagMask: nil,
                      note: "Есть на полноразмерных клавиатурах"),
         HotkeyOption(id: "f16", title: "F16", keyCode: 106, flagMask: nil,
-                     note: "Есть на полноразмерных клавиатурах"),
-        // нажатие и отпускание, удержание в три секунды доходит целиком.
+                     note: "Есть на полноразмерных клавиатурах")
     ]
 
     static let fallback = all[0]
