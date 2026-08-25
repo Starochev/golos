@@ -1,6 +1,6 @@
 {
-  "version": "0.2.8",
-  "url": "https://github.com/Starochev/golos/releases/download/win-v0.2.8/Golos.exe",
-  "sha256": "F41B69098AFB8F29176E2A8DFA2DCC907C1FF04F5A0882EC8F0ED8A99819D8EF",
-  "notes": "Движок распознавания теперь внутри exe. Слова больше не разрываются пробелом."
+  "version": "0.3.0",
+  "url": "https://github.com/Starochev/golos/releases/download/win-v0.3.0/Golos.exe",
+  "sha256": "A0CAB52354570CDCA03941130107B698D63CD86B8DBEDA3E88A3D5D9DB97C5E5",
+  "notes": "Кандидаты в словарь, голосовые сообщения переключателем в окошке записи, пустой словарь при установке."
 }
