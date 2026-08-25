@@ -32,8 +32,6 @@ build:   %USERPROFILE%\.dotnet\dotnet.exe publish src -c Release -o app
 запуск:  app\Golos.exe
 ```
 
-Собирается на самой Windows: движок и рантайм под неё, кросс-сборки нет.
-
 Нужен .NET 8 SDK. Ставится без прав администратора:
 
 ```
@@ -45,21 +43,17 @@ powershell -c "& ([scriptblock]::Create((irm https://dot.net/v1/dotnet-install.p
 
 ## Движок и модели
 
-Процессорная сборка whisper.cpp лежит внутри exe: `src/engine-cpu.zip`,
-13 файлов и 10 МБ в распакованном виде. При первом запуске она раскладывается
-в `Documents\Golos\engine`, и приложение работает сразу после скачивания.
-Рядом кладётся метка с номером выпуска: после обновления содержимое
-заменяется, иначе новый exe работал бы со старыми библиотеками.
+Готовые сборки whisper.cpp под Windows берутся из релизов проекта,
+компилятор не нужен:
 
-Сборка под видеокарту весит больше полугигабайта, внутрь такое не положишь.
-Она качается кнопкой в настройках и ложится в `Documents\Golos\engine-cuda`.
-Нужен драйвер NVIDIA 12.x.
+```
+whisper-cublas-12.4.0-bin-x64.zip   -> D:\Golos\engine
+ggml-large-v3.bin                   -> D:\Golos\models
+ggml-silero-v5.1.2.bin              -> D:\Golos\models
+```
 
-Порядок поиска движка в `EngineCatalog.Locate`: своя папка из настроек,
-потом `engine-cuda`, потом папка `engine` рядом с exe, потом встроенная.
-
-Модели качаются отдельно, при первом запуске, в `Documents\Golos\models`.
-Если рядом с exe есть папка `models`, берётся она.
+Версия с CUDA требует драйвер NVIDIA 12.x. Без видеокарты подойдёт
+`whisper-bin-x64.zip` — тот же сервер, только на процессоре.
 
 ## Файлы
 
@@ -78,10 +72,6 @@ powershell -c "& ([scriptblock]::Create((irm https://dot.net/v1/dotnet-install.p
 | `WaveTheme.cs` | Цвета волны |
 | `HotkeyOption.cs` | Список доступных клавиш записи |
 | `ModelCatalog.cs` | Каталог моделей и загрузка |
-| `EngineCatalog.cs` | Где взять whisper-server: встроенный, CUDA, своя папка |
-| `MediaDecoder.cs` | Звук из чужих форматов: система, иначе свой ffmpeg |
-| `FileTranscriber.cs` | Расшифровка файла с тайм-кодами, `.txt` и `.srt` |
-| `TranscribeForm.cs` | Окно перетаскивания и очередь файлов |
 | `ModelPickerForm.cs` | Окно выбора модели |
 | `Updater.cs` | Обновления |
 | `Autostart.cs` | Запуск при входе в систему |
@@ -111,7 +101,7 @@ powershell -c "& ([scriptblock]::Create((irm https://dot.net/v1/dotnet-install.p
 
 ## Иконка
 
-Та же, что на macOS, собрана из тех же исходников в `icon/` в корне
+Та же, что на macOS, собрана из тех же исходников в `icon/` соседнего
 репозитория. В `.ico` вложены семь размеров от 16 до 256, мелкие берутся
 из упрощённого рисунка: тонкие лучи со свечением в 16 пикселях превращаются
 в пятно.

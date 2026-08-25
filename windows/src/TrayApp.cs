@@ -17,6 +17,10 @@ public sealed class TrayApp : ApplicationContext
     private Config config = Config.Load();
     private readonly Recorder recorder = new();
     private HudForm? hud;
+    /// <summary>Чем отдать текущую запись. Хозяин здесь, а не в окошке:
+    /// переключать можно и с выключенным окошком, тогда режим виден по значку.</summary>
+    private HudForm.Mode captureMode = HudForm.Mode.Text;
+    private readonly Candidates candidates = new();
     private Whisper whisper;
     private Hotkey? hotkey;
 
@@ -246,6 +250,11 @@ public sealed class TrayApp : ApplicationContext
             case Hotkey.Event.Cancel:
                 _ = EndRecordingAsync(discard: true);
                 break;
+            case Hotkey.Event.FlipMode:
+                if (state == State.Recording)
+                    SetCaptureMode(captureMode == HudForm.Mode.Text
+                                   ? HudForm.Mode.Audio : HudForm.Mode.Text);
+                break;
         }
     }
 
@@ -268,6 +277,8 @@ public sealed class TrayApp : ApplicationContext
         // Словарь мог поменяться между диктовками — перечитываем.
         config = Config.Load();
         recordingGeneration++;
+        // Каждый раз с чистого листа: звук уходит только по осознанному выбору.
+        captureMode = HudForm.Mode.Text;
 
         try
         {
@@ -277,8 +288,12 @@ public sealed class TrayApp : ApplicationContext
             PlaySound(start: true);
             if (config.ShowHUD)
             {
-                hud ??= new HudForm();
-                hud.ShowWave(WaveTheme.ColorFor(config), () => recorder.Level);
+                if (hud == null)
+                {
+                    hud = new HudForm();
+                    hud.ModeChanged += SetCaptureMode;
+                }
+                hud.ShowWave(WaveTheme.ColorFor(config), captureMode, () => recorder.Level);
             }
         }
         catch (Exception e)
@@ -300,6 +315,16 @@ public sealed class TrayApp : ApplicationContext
         }
 
         PlaySound(start: false);
+
+        // Переключатель решает, чем отдать надиктованное. Звуком — значит
+        // распознавать нечего, сразу пакуем и кладём в буфер.
+        if (captureMode == HudForm.Mode.Audio)
+        {
+            SetState(State.Idle);
+            ExportVoice(wav);
+            return;
+        }
+
         hud?.MarkTranscribing();
         SetState(State.Transcribing);
 
@@ -350,8 +375,8 @@ public sealed class TrayApp : ApplicationContext
             return;
         }
 
-        var text = config.ApplyReplacements(
-            Hallucination.StripTrailingInvention(Hallucination.CollapseTrailingRepeats(raw)));
+        var text = config.ApplyFinalPunctuation(config.ApplyReplacements(
+            Hallucination.StripTrailingInvention(Hallucination.CollapseTrailingRepeats(raw))));
         Log.Write($"распознано: {text}");
         if (text.Length == 0)
         {
@@ -362,6 +387,57 @@ public sealed class TrayApp : ApplicationContext
         Inserter.Insert(text, config.InsertMode);
         if (config.KeepHistory) SaveHistory(wav, text);
         if (current) SetState(State.Idle);
+        if (current) _ = CollectCandidatesAsync(wav, generation);
+    }
+
+    private void SetCaptureMode(HudForm.Mode mode)
+    {
+        if (mode == captureMode) return;
+        captureMode = mode;
+        Log.Write($"режим записи: {(mode == HudForm.Mode.Audio ? "звук" : "текст")}");
+        hud?.SetMode(mode);
+        AnimateIcon();
+    }
+
+    /// <summary>Пакует запись в голосовое и кладёт в буфер файлом.</summary>
+    private void ExportVoice(byte[] wav)
+    {
+        hud?.ShowMessage("Пакую…");
+        var seconds = (int)Math.Round((wav.Length - 44) / 32000.0);
+        Task.Run(() => VoiceMessage.Encode(wav)).ContinueWith(task =>
+        {
+            var (path, error) = task.Result;
+            if (path == null)
+            {
+                Log.Write($"голосовое не собралось: {error}");
+                hud?.HideWave();
+                SetState(State.Failed, error ?? "Не вышло сжать запись");
+                return;
+            }
+            VoiceMessage.CopyToClipboard(path);
+            Log.Write($"голосовое в буфере: {Path.GetFileName(path)}, {seconds} с");
+            hud?.ShowMessage($"В буфере, {seconds} с", 1400);
+        }, TaskScheduler.FromCurrentSynchronizationContext());
+    }
+
+    /// <summary>
+    /// Разбор слов, в которых модель сомневалась. Идёт после вставки:
+    /// уверенность живёт только в подробном ответе сервера, а он отвечает
+    /// на полсекунды дольше, и ждать это на каждой фразе незачем.
+    /// Словарь не передаём: он подсказывает модели ответ, а нам нужна
+    /// её собственная неуверенность.
+    /// </summary>
+    private async Task CollectCandidatesAsync(byte[] wav, int generation)
+    {
+        if (!config.CollectCandidates) return;
+        foreach (var part in AudioSplit.Chunks(wav))
+        {
+            // Начали новую диктовку — разбор бросаем: сервер один.
+            if (generation != recordingGeneration) return;
+            var words = await whisper.AnalyzeWordsAsync(part, "");
+            if (generation != recordingGeneration) return;
+            candidates.Record(words);
+        }
     }
 
     /// <summary>
@@ -473,7 +549,8 @@ public sealed class TrayApp : ApplicationContext
         switch (state)
         {
             case State.Recording:
-                SetIcon(TrayIcon.Recording(recorder.Level, WaveTheme.TrayColorFor(config)));
+                SetIcon(TrayIcon.Recording(recorder.Level, WaveTheme.TrayColorFor(config),
+                                           captureMode == HudForm.Mode.Audio));
                 break;
             case State.Transcribing:
                 transcribePhase += 0.32f;

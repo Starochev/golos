@@ -58,7 +58,9 @@ CONFIGURE=(
 # статически, иначе на чужой машине приложение не запустится.
 OPUS_LIB="/opt/homebrew/opt/opus/lib/libopus.a"
 OPUS_INC="/opt/homebrew/opt/opus/include"
-if [ -f "$OPUS_LIB" ] && command -v pkg-config >/dev/null; then
+# Только для сборки под macOS. Под Windows нужен свой libopus, а этот
+# ещё и перебил бы его: PKG_CONFIG_PATH сильнее, чем PKG_CONFIG_LIBDIR.
+if ! $WINDOWS && [ -f "$OPUS_LIB" ] && command -v pkg-config >/dev/null; then
     # Своя папка с одним только .a: иначе линковщик возьмёт dylib.
     OPUS_STATIC="$WORK/opus-static"
     mkdir -p "$OPUS_STATIC"
@@ -85,9 +87,45 @@ if $WINDOWS; then
         || { echo "Нужен ассемблер: brew install nasm" >&2; exit 1; }
     CONFIGURE+=(
         --enable-cross-compile --cross-prefix=x86_64-w64-mingw32-
-        --arch=x86_64 --target-os=mingw32 --pkg-config=false
+        --arch=x86_64 --target-os=mingw32
         --extra-ldflags=-static
     )
+
+    # libopus под mingw готовых сборок не имеет, собираем сами. Нужен он ради
+    # голосовых сообщений: ogg с opus мессенджеры показывают голосовым,
+    # а всё остальное вложением с плеером.
+    OPUS_WIN="$WORK/opus-win"
+    OPUS_SRC="1.5.2"
+    if [ ! -f "$OPUS_WIN/lib/libopus.a" ]; then
+        echo "Собираю libopus под Windows…"
+        if [ ! -d "$WORK/opus-$OPUS_SRC" ]; then
+            curl -sSL -o "$WORK/opus.tar.gz" \
+                "https://downloads.xiph.org/releases/opus/opus-$OPUS_SRC.tar.gz"
+            tar xf "$WORK/opus.tar.gz" -C "$WORK"
+        fi
+        (
+            cd "$WORK/opus-$OPUS_SRC"
+            ./configure --host=x86_64-w64-mingw32 --prefix="$OPUS_WIN" \
+                --disable-shared --enable-static --disable-doc \
+                --disable-extra-programs > "$WORK/opus-configure.log" 2>&1
+            make -j "$(sysctl -n hw.ncpu)" > "$WORK/opus-make.log" 2>&1
+            make install > /dev/null 2>&1
+        )
+    fi
+
+    if [ -f "$OPUS_WIN/lib/libopus.a" ]; then
+        # LIBDIR, а не PATH: иначе pkg-config подмешает библиотеки от макоси.
+        # PATH перебивает LIBDIR, поэтому его надо именно снять.
+        unset PKG_CONFIG_PATH
+        export PKG_CONFIG_LIBDIR="$OPUS_WIN/lib/pkgconfig"
+        # При кросс-сборке ffmpeg сперва ищет x86_64-w64-mingw32-pkg-config,
+        # не находит и молча подставляет false. Указываем явно.
+        CONFIGURE+=(--enable-libopus --enable-encoder=libopus --pkg-config=pkg-config)
+    else
+        echo "libopus под Windows не собрался: голосовых сообщений не будет." >&2
+        CONFIGURE+=(--pkg-config=false)
+    fi
+
     BUILD_DIR="$WORK/build-win"
 else
     BUILD_DIR="$WORK/build-mac"

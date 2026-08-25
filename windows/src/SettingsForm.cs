@@ -16,6 +16,7 @@ public sealed class SettingsForm : Form
     private readonly Label budgetLabel = new();
     private readonly ProgressBar budgetBar = new();
     private readonly Label problemLabel = new();
+    private readonly Candidates candidates = new();
 
     public SettingsForm()
     {
@@ -36,6 +37,7 @@ public sealed class SettingsForm : Form
         tabs.TabPages.Add(GeneralTab());
         tabs.TabPages.Add(VocabularyTab());
         tabs.TabPages.Add(ReplacementsTab());
+        tabs.TabPages.Add(CandidatesTab());
         tabs.TabPages.Add(AboutTab());
         Controls.Add(tabs);
 
@@ -278,6 +280,19 @@ public sealed class SettingsForm : Form
         layout.Controls.Add(engineProgress);
         layout.Controls.Add(Hint("Процессорная сборка лежит внутри приложения и работает сразу. На видеокарте NVIDIA распознавание идёт в разы быстрее, но её сборку приходится качать отдельно: она слишком тяжёлая, чтобы носить её всем. Смена применится после перезапуска приложения."));
 
+        layout.Controls.Add(Header("Знак в конце фразы"));
+        var punctuation = new ComboBox { Width = 260, DropDownStyle = ComboBoxStyle.DropDownList };
+        var punctuationIds = new[] { "keep", "period", "any" };
+        punctuation.Items.AddRange(new object[] { "Как распознано", "Убирать точку", "Убирать любой знак" });
+        punctuation.SelectedIndex = Math.Max(0, Array.IndexOf(punctuationIds, config.FinalPunctuation));
+        punctuation.SelectedIndexChanged += (_, _) =>
+        {
+            config.FinalPunctuation = punctuationIds[punctuation.SelectedIndex];
+            Save();
+        };
+        layout.Controls.Add(punctuation);
+        layout.Controls.Add(Hint("Знаки препинания расставляет сама модель, по интонации и смыслу. Отдельной ручки у неё нет, и вопросительный знак она иногда пропускает. Убрать лишнее с конца можно, доставить нужное нет. На расшифровку файлов не влияет."));
+
         layout.Controls.Add(Header("Расшифровка файлов"));
         var folderRow = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.LeftToRight };
         var folderLabel = new Label
@@ -471,18 +486,22 @@ public sealed class SettingsForm : Form
 
     private void AddTerm()
     {
-        var term = newTermBox.Text.Trim();
-        if (term.Length == 0) { problemLabel.Text = "Пустая строка"; return; }
+        var problem = AddTerm(newTermBox.Text);
+        problemLabel.Text = problem ?? "";
+        if (problem == null) newTermBox.Text = "";
+    }
+
+    /// <summary>Возвращает причину отказа или null, если слово добавлено.</summary>
+    private string? AddTerm(string raw)
+    {
+        var term = raw.Trim();
+        if (term.Length == 0) return "Пустая строка";
         if (config.Vocabulary.Any(t => string.Equals(t, term, StringComparison.OrdinalIgnoreCase)))
-        {
-            problemLabel.Text = $"«{term}» уже в списке";
-            return;
-        }
+            return $"«{term}» уже в списке";
         config.Vocabulary.Add(term);
-        newTermBox.Text = "";
-        problemLabel.Text = "";
         Save();
         RefreshVocabulary();
+        return null;
     }
 
     private void RemoveTerm()
@@ -593,6 +612,131 @@ public sealed class SettingsForm : Form
         WrapContents = false,
         AutoScroll = true
     };
+
+    /// <summary>
+    /// Слова, в которых модель сомневалась, с предложением занести их в словарь.
+    /// Показываем не всё подряд: отсеивает системный словарь русского языка,
+    /// иначе список забивается обычными словами, сказанными быстро.
+    /// </summary>
+    private TabPage CandidatesTab()
+    {
+        var page = new TabPage("Кандидаты") { Padding = new Padding(14) };
+        var layout = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            FlowDirection = FlowDirection.TopDown,
+            WrapContents = false,
+            AutoScroll = true
+        };
+
+        layout.Controls.Add(Header("Слова, в которых распознавание сомневалось"));
+        layout.Controls.Add(Hint("Модель отдаёт уверенность по каждому слову. Сюда попадает то, что она разобрала неуверенно и чего нет в словаре русского языка: обычно это англицизм, записанный кириллицей. Напиши, как слово пишется на самом деле, и оно уйдёт в словарь распознавания."));
+
+        var list = new FlowLayoutPanel
+        {
+            FlowDirection = FlowDirection.TopDown,
+            WrapContents = false,
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            Margin = new Padding(0, 8, 0, 8)
+        };
+        layout.Controls.Add(list);
+
+        void Rebuild()
+        {
+            list.Controls.Clear();
+            var pending = candidates.Pending;
+            if (pending.Count == 0)
+            {
+                list.Controls.Add(Hint(config.CollectCandidates
+                    ? "Пока пусто. Слово попадает сюда, когда распознавание о него спотыкается, а словарь русского языка его не знает."
+                    : "Сбор выключен. Включи его ниже, и после нескольких диктовок здесь появятся слова."));
+                return;
+            }
+            foreach (var candidate in pending) list.Controls.Add(Row(candidate, Rebuild));
+        }
+
+        Rebuild();
+
+        var collect = new CheckBox
+        {
+            Text = "Собирать сомнительные слова",
+            Checked = config.CollectCandidates,
+            AutoSize = true,
+            Margin = new Padding(0, 10, 0, 0)
+        };
+        collect.CheckedChanged += (_, _) => { config.CollectCandidates = collect.Checked; Save(); Rebuild(); };
+        layout.Controls.Add(collect);
+        layout.Controls.Add(Hint("Разбор идёт фоном, уже после того как текст вставлен: на саму диктовку он не влияет. Кандидат без ответа исчезает сам через неделю, решённое молчит три месяца."));
+
+        var forget = new Button { Text = "Очистить список", Width = 160 };
+        forget.Click += (_, _) => { candidates.ForgetAll(); Rebuild(); };
+        layout.Controls.Add(forget);
+
+        page.Controls.Add(layout);
+        return page;
+    }
+
+    private Control Row(Candidate candidate, Action refresh)
+    {
+        var box = new FlowLayoutPanel
+        {
+            FlowDirection = FlowDirection.TopDown,
+            WrapContents = false,
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            BorderStyle = BorderStyle.FixedSingle,
+            Padding = new Padding(8),
+            Margin = new Padding(0, 0, 0, 6)
+        };
+
+        var title = new Label
+        {
+            Text = candidate.Hits > 1
+                ? $"{candidate.Word}   {candidate.Hits} раза, уверенность {candidate.Worst * 100:F0}%"
+                : $"{candidate.Word}   уверенность {candidate.Worst * 100:F0}%",
+            Font = new Font(SystemFonts.DefaultFont, FontStyle.Bold),
+            AutoSize = true
+        };
+        box.Controls.Add(title);
+
+        if (candidate.Context.Length > 0)
+        {
+            box.Controls.Add(new Label
+            {
+                Text = "«" + Shorten(candidate.Context) + "»",
+                ForeColor = SystemColors.GrayText,
+                AutoSize = true,
+                MaximumSize = new Size(520, 0)
+            });
+        }
+
+        var row = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.LeftToRight };
+        var field = new TextBox { Width = 190, PlaceholderText = "как пишется на самом деле" };
+        var accept = new Button { Text = "В словарь", Width = 110, Enabled = false };
+        var correct = new Button { Text = "Всё верно", Width = 110 };
+        var hide = new Button { Text = "Скрыть", Width = 90 };
+
+        field.TextChanged += (_, _) => accept.Enabled = field.Text.Trim().Length > 0;
+        accept.Click += (_, _) =>
+        {
+            var problem = AddTerm(field.Text);
+            if (problem != null) { MessageBox.Show(this, problem, "Не вышло"); return; }
+            candidates.Accepted(candidate);
+            refresh();
+        };
+        correct.Click += (_, _) => { candidates.MarkCorrect(candidate); refresh(); };
+        hide.Click += (_, _) => { candidates.Dismiss(candidate); refresh(); };
+
+        row.Controls.Add(field);
+        row.Controls.Add(accept);
+        row.Controls.Add(correct);
+        row.Controls.Add(hide);
+        box.Controls.Add(row);
+        return box;
+    }
+
+    private static string Shorten(string text) => text.Length <= 90 ? text : text[..87] + "…";
 
     private static Label Header(string text) => new()
     {
