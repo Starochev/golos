@@ -6,13 +6,16 @@ import SwiftUI
 final class SettingsWindow {
     private var window: NSWindow?
     private let store: SettingsStore
+    private let candidates: Candidates
     private let onOpenModelPicker: () -> Void
     private let onCheckUpdates: () -> Void
 
     init(store: SettingsStore,
+         candidates: Candidates,
          onOpenModelPicker: @escaping () -> Void,
          onCheckUpdates: @escaping () -> Void) {
         self.store = store
+        self.candidates = candidates
         self.onOpenModelPicker = onOpenModelPicker
         self.onCheckUpdates = onCheckUpdates
     }
@@ -28,6 +31,7 @@ final class SettingsWindow {
         }
 
         let view = SettingsView(store: store,
+                                candidates: candidates,
                                 onOpenModelPicker: onOpenModelPicker,
                                 onCheckUpdates: onCheckUpdates)
         let hosting = NSHostingController(rootView: view)
@@ -55,6 +59,7 @@ private final class WindowCloser: NSObject, NSWindowDelegate {
 
 private struct SettingsView: View {
     @ObservedObject var store: SettingsStore
+    @ObservedObject var candidates: Candidates
     let onOpenModelPicker: () -> Void
     let onCheckUpdates: () -> Void
 
@@ -68,6 +73,9 @@ private struct SettingsView: View {
 
             ReplacementsTab(store: store)
                 .tabItem { Label("Замены", systemImage: "arrow.left.arrow.right") }
+
+            CandidatesTab(store: store, candidates: candidates)
+                .tabItem { Label("Кандидаты", systemImage: "questionmark.bubble") }
 
             AboutTab(onCheckUpdates: onCheckUpdates)
                 .tabItem { Label("О программе", systemImage: "info.circle") }
@@ -489,6 +497,143 @@ private struct VocabularyTab: View {
     private func add() {
         problem = store.addTerm(newTerm)
         if problem == nil { newTerm = "" }
+    }
+}
+
+// MARK: - Кандидаты
+
+/// Слова, в которых модель сомневалась, с предложением занести их в словарь.
+///
+/// Показываем не всё подряд: спрашиваем только про те, что споткнулись
+/// повторно. Иначе список забивается обычными русскими словами, сказанными
+/// быстро — их в час диктовки набирается несколько сотен.
+private struct CandidatesTab: View {
+    @ObservedObject var store: SettingsStore
+    @ObservedObject var candidates: Candidates
+    /// Латинское написание, которое человек набирает для конкретного слова.
+    @State private var drafts: [String: String] = [:]
+    @State private var problem: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Слова, в которых распознавание сомневалось")
+                .font(.system(size: 13, weight: .semibold))
+            Text("Модель отдаёт уверенность по каждому слову. Сюда попадает то, что она разобрала неуверенно и чего нет в словаре русского языка: обычно это англицизм, записанный кириллицей. Напиши, как слово пишется на самом деле, и оно уйдёт в словарь распознавания.")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if let problem {
+                Text(problem)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.orange)
+            }
+
+            if candidates.pending.isEmpty {
+                emptyState
+            } else {
+                List {
+                    ForEach(candidates.pending) { candidate in
+                        row(candidate)
+                            .padding(.vertical, 4)
+                    }
+                }
+                .frame(maxHeight: .infinity)
+            }
+
+            footer
+        }
+    }
+
+    private var emptyState: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Spacer()
+            Text(store.config.collectCandidates
+                 ? "Пока пусто. Слово попадает сюда, когда распознавание о него спотыкается, а словарь русского языка его не знает."
+                 : "Сбор выключен. Включи его внизу, и после нескольких диктовок здесь появятся слова.")
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private func row(_ candidate: Candidate) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 8) {
+                Text(candidate.word)
+                    .font(.system(size: 13, weight: .medium))
+                Text(candidate.hits > 1
+                     ? "\(candidate.hits) раза, уверенность \(percent(candidate.worst))"
+                     : "уверенность \(percent(candidate.worst))")
+                    .font(.system(size: 11).monospacedDigit())
+                    .foregroundStyle(.secondary)
+                Spacer()
+            }
+
+            if !candidate.context.isEmpty {
+                Text("«\(candidate.context)»")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            HStack(spacing: 6) {
+                TextField("как пишется на самом деле", text: binding(for: candidate))
+                    .textFieldStyle(.roundedBorder)
+                    .frame(maxWidth: 220)
+                    .onSubmit { accept(candidate) }
+                Button("В словарь") { accept(candidate) }
+                    .disabled(draft(for: candidate).isEmpty)
+                Button("Не спрашивать") { candidates.ignore(candidate) }
+                Button("Скрыть") { candidates.dismiss(candidate) }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var footer: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Divider()
+            Toggle("Собирать сомнительные слова", isOn: Binding(
+                get: { store.config.collectCandidates },
+                set: { store.config.collectCandidates = $0 }
+            ))
+            Text("Разбор идёт фоном, уже после того как текст вставлен: на саму диктовку он не влияет. Кандидат без ответа исчезает сам через неделю, «не спрашивать» держится три месяца.")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            if !candidates.pending.isEmpty {
+                Button("Очистить список") { candidates.forgetAll() }
+                    .buttonStyle(.borderless)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func draft(for candidate: Candidate) -> String {
+        (drafts[candidate.id] ?? "").trimmingCharacters(in: .whitespaces)
+    }
+
+    private func binding(for candidate: Candidate) -> Binding<String> {
+        Binding(get: { drafts[candidate.id] ?? "" },
+                set: { drafts[candidate.id] = $0 })
+    }
+
+    private func accept(_ candidate: Candidate) {
+        let term = draft(for: candidate)
+        guard !term.isEmpty else { return }
+        problem = store.addTerm(term)
+        guard problem == nil else { return }
+        drafts[candidate.id] = nil
+        candidates.accepted(candidate)
+    }
+
+    private func percent(_ value: Double) -> String {
+        String(format: "%.0f%%", value * 100)
     }
 }
 

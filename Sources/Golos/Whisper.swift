@@ -305,6 +305,58 @@ final class Whisper {
         var joinsPreviousWord: Bool = false
     }
 
+    /// Слово с уверенностью модели и фразой, в которой оно прозвучало.
+    struct WordConfidence {
+        var word: String
+        var probability: Double
+        var context: String
+    }
+
+    /// Разбор с уверенностью по каждому слову — для копилки кандидатов.
+    ///
+    /// Сервер отдаёт вероятности не по словам, а по токенам, и слово приезжает
+    /// кусками: «баз», «ы». У куска-продолжения нет ведущего пробела, по нему
+    /// куски и склеиваются обратно. Уверенность склеенного слова берём худшую
+    /// из кусков: слово испорчено настолько, насколько испорчена худшая часть.
+    func analyzeWords(wav: Data, prompt: String,
+                      completion: @escaping ([WordConfidence]) -> Void) {
+        request(wav: wav, prompt: prompt, verbose: true) { result in
+            guard case .success(let object) = result,
+                  let segments = object["segments"] as? [[String: Any]]
+            else { completion([]); return }
+
+            var words: [WordConfidence] = []
+            for segment in segments {
+                let context = Whisper.clean(segment["text"] as? String ?? "")
+                guard let pieces = segment["words"] as? [[String: Any]] else { continue }
+
+                var current = ""
+                var worst = 1.0
+                func flush() {
+                    // Пунктуация приезжает приклеенной к слову: «бэкап.» и «менеджеров,».
+                    // В словарь она не нужна и в списке выглядит неряшливо.
+                    let word = current.trimmingCharacters(in: .whitespaces)
+                        .trimmingCharacters(in: CharacterSet(charactersIn: ".,!?;:«»\"'()"))
+                    if !word.isEmpty {
+                        words.append(WordConfidence(word: word, probability: worst, context: context))
+                    }
+                    current = ""
+                    worst = 1.0
+                }
+
+                for piece in pieces {
+                    let raw = piece["word"] as? String ?? ""
+                    let probability = piece["probability"] as? Double ?? 1.0
+                    if raw.hasPrefix(" ") && !current.isEmpty { flush() }
+                    current += raw.trimmingCharacters(in: .whitespaces)
+                    worst = min(worst, probability)
+                }
+                flush()
+            }
+            completion(words)
+        }
+    }
+
     /// Распознавание с тайм-кодами — для расшифровки файлов.
     func transcribeSegments(wav: Data, prompt: String,
                             completion: @escaping (Result<[Segment], Error>) -> Void) {

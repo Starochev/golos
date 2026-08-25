@@ -41,6 +41,8 @@ final class Controller {
     /// Файлы, пришедшие до готовности движка.
     private var pendingFiles: [URL] = []
     private lazy var settingsStore = SettingsStore()
+    /// Слова, в которых модель сомневалась. Заполняется фоном после диктовки.
+    private lazy var candidates = Candidates()
     /// Смена языка или модели требует перезапуска движка. Гасим дребезг:
     /// пока пользователь щёлкает по списку, перезапускать нет смысла.
     private var engineReloadWork: DispatchWorkItem?
@@ -81,6 +83,7 @@ final class Controller {
             }
             settingsWindow = SettingsWindow(
                 store: settingsStore,
+                candidates: candidates,
                 onOpenModelPicker: { [weak self] in self?.showModelPicker() },
                 onCheckUpdates: { [weak self] in self?.onCheckUpdates?() }
             )
@@ -447,6 +450,34 @@ final class Controller {
         Inserter.insert(text, mode: mode)
         if config.keepHistory { saveHistory(wav: wav, text: text) }
         if current { state = .idle }
+        if current { collectCandidates(wav: wav, generation: generation) }
+    }
+
+    /// Разбор слов, в которых модель сомневалась.
+    ///
+    /// Идёт после вставки, а не вместо неё: уверенность живёт только
+    /// в подробном ответе сервера, а он на записи в 17 секунд отвечает
+    /// на полсекунды дольше. Ждать эти полсекунды на каждой фразе незачем,
+    /// поэтому платим лишним проходом, но уже в фоне.
+    ///
+    /// Куски те же, что при распознавании: whisper разбирает окнами по
+    /// 30 секунд, и целую длинную запись одним запросом отдавать нельзя.
+    /// Словарь при этом не передаём: он и так подсказывает модели ответ,
+    /// а нам нужна её собственная неуверенность.
+    private func collectCandidates(wav: Data, generation: Int) {
+        guard config.collectCandidates else { return }
+        analyzeChunks(AudioSplit.chunks(wav: wav), index: 0, generation: generation)
+    }
+
+    private func analyzeChunks(_ parts: [Data], index: Int, generation: Int) {
+        // Начали новую диктовку — разбор бросаем: сервер один, и свежая
+        // запись важнее копилки.
+        guard index < parts.count, generation == recordingGeneration else { return }
+        whisper.analyzeWords(wav: parts[index], prompt: "") { [weak self] words in
+            guard let self, generation == self.recordingGeneration else { return }
+            self.candidates.record(words)
+            self.analyzeChunks(parts, index: index + 1, generation: generation)
+        }
     }
 
     // MARK: - Мелочи

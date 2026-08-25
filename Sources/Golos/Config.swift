@@ -38,6 +38,10 @@ struct Config: Codable {
     /// Оставлять ли рядом с расшифровкой переконвертированный wav.
     var keepConvertedAudio: Bool = false
     /// Хранить ли wav и расшифровку в ~/Documents/Golos/history.
+    /// Собирать слова, в которых модель сомневалась, и предлагать их в словарь.
+    /// Разбор идёт фоном, уже после вставки текста: он стоит ещё одного прохода
+    /// распознавания, и ждать его на каждой фразе незачем.
+    var collectCandidates: Bool = true
     var keepHistory: Bool = true
     /// Через сколько часов удалять записи. 0 — не удалять никогда.
     /// По умолчанию час: история нужна, чтобы разобрать свежую ошибку
@@ -103,6 +107,7 @@ struct Config: Codable {
             ?? fallback.fileOutputFolder
         keepConvertedAudio = try c.decodeIfPresent(Bool.self, forKey: .keepConvertedAudio)
             ?? fallback.keepConvertedAudio
+        collectCandidates = try c.decodeIfPresent(Bool.self, forKey: .collectCandidates) ?? fallback.collectCandidates
         keepHistory = try c.decodeIfPresent(Bool.self, forKey: .keepHistory) ?? fallback.keepHistory
         historyRetentionHours = try c.decodeIfPresent(Int.self, forKey: .historyRetentionHours)
             ?? fallback.historyRetentionHours

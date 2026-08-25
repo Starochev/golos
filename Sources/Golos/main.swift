@@ -31,6 +31,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
+        // «Golos --settings» — то же, что пункт меню. Удобно, когда значок
+        // в строке меню не виден, и одинаково с версией для Windows.
+        if arguments.contains("--settings") {
+            DispatchQueue.main.async { [weak self] in self?.controller.showSettings() }
+        }
+
         controller.onCheckUpdates = { [weak self] in self?.updater.checkNowBringingToFront() }
         controller.onHotkeyChanged = { [weak self] in self?.refreshHint() }
         controller.start()
