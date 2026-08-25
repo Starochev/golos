@@ -150,7 +150,7 @@ private struct GeneralTab: View {
                     .fixedSize(horizontal: false, vertical: true)
 
                 if store.config.keepHistory {
-                    Picker("Удалять записи", selection: $store.config.historyRetentionHours) {
+                    Picker("Удалять звук", selection: $store.config.historyRetentionHours) {
                         Text("Через час").tag(1)
                         Text("Через сутки").tag(24)
                         Text("Через неделю").tag(168)
@@ -168,6 +168,10 @@ private struct GeneralTab: View {
                         }
                         .controlSize(.small)
                     }
+                    Text("Срок относится только к звуку. Расшифровки остаются навсегда: весят они копейки, а по ним видно, как со временем меняется речь.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             } header: {
                 Text("История").font(.system(size: 12, weight: .semibold))

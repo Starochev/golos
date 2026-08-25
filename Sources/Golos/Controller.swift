@@ -586,13 +586,18 @@ final class Controller {
 
         var removed = 0
         for file in files {
+            // Расшифровки не трогаем никогда. Место они занимают копеечное,
+            // а по ним видно, как меняется речь: сколько было слов-паразитов
+            // месяц назад и сколько стало. Стирать такое ради килобайтов глупо.
+            guard file.pathExtension != "txt" else { continue }
+
             let modified = (try? file.resourceValues(forKeys: [.contentModificationDateKey]))?
                 .contentModificationDate
             guard let modified, modified < cutoff else { continue }
             try? fm.removeItem(at: file)
             removed += 1
         }
-        if removed > 0 { Log.write("история: удалено файлов \(removed)") }
+        if removed > 0 { Log.write("история: удалено записей \(removed), расшифровки оставлены") }
     }
 }
 
