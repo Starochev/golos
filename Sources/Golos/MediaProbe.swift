@@ -32,7 +32,16 @@ enum MediaProbe {
                     let code = Int((data & 0xFFFF_0000) >> 16)
                     let flags = data & 0x0000_FFFF
                     let down = ((flags & 0xFF00) >> 8) == 0x0A
-                    Log.write("ПУЛЬТ: код \(code), \(MediaProbe.title(for: code)), \(down ? "нажата" : "отпущена")")
+                    // Сырые поля целиком: ищем, чем событие с провода
+                    // отличается от такого же с клавиатуры.
+                    let source = event.getIntegerValueField(.eventSourceStateID)
+                    let pid = event.getIntegerValueField(.eventSourceUnixProcessID)
+                    let type = event.getIntegerValueField(.eventSourceUserData)
+                    Log.write(String(format: "ПУЛЬТ: код %d (%@), %@, data1=0x%08X data2=%d source=%d pid=%d user=%d",
+                                     code, MediaProbe.title(for: code),
+                                     down ? "нажата" : "отпущена",
+                                     UInt32(bitPattern: Int32(truncatingIfNeeded: data)),
+                                     ns.data2, source, pid, type))
                 }
                 return Unmanaged.passUnretained(event)
             },

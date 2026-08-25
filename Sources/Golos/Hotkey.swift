@@ -87,31 +87,23 @@ final class Hotkey {
 
         // keyUp нужен для клавиш вроде F13: они, в отличие от модификаторов,
         // приходят обычными нажатиями, а не сменой флагов.
-        // Тип 14 — системные события: кнопки пульта на проводе гарнитуры
-        // и медиаклавиши клавиатуры. Своей константы у него в CGEventType нет.
         let mask = (1 << CGEventType.flagsChanged.rawValue)
             | (1 << CGEventType.keyDown.rawValue)
             | (1 << CGEventType.keyUp.rawValue)
-            | (1 << 14)
         let this = Unmanaged.passUnretained(self).toOpaque()
 
-        // Перехват на уровне HID, а не сессии. Кнопки пульта система раздаёт
-        // плеерам через свой механизм «что сейчас играет», и он получает
-        // событие раньше, чем оно доходит до сессии: проглоченное на сессии
-        // нажатие всё равно запускало видео в браузере.
         guard let port = CGEvent.tapCreate(
-            tap: .cghidEventTap,
+            tap: .cgSessionEventTap,
             place: .headInsertEventTap,
-            // Активный перехват: кнопку гарнитуры надо проглотить, иначе она
-            // заодно поставит музыку на паузу или изменит громкость.
-            // Всё остальное пропускается как было.
-            options: .defaultTap,
+            // Только слушаем, ничего не глотаем: приложению незачем стоять
+            // в очереди ввода, оно там может подвесить всю клавиатуру.
+            options: .listenOnly,
             eventsOfInterest: CGEventMask(mask),
             callback: { _, type, event, refcon in
                 guard let refcon else { return Unmanaged.passUnretained(event) }
                 let me = Unmanaged<Hotkey>.fromOpaque(refcon).takeUnretainedValue()
-                let swallow = me.handle(type: type, event: event)
-                return swallow ? nil : Unmanaged.passUnretained(event)
+                me.handle(type: type, event: event)
+                return Unmanaged.passUnretained(event)
             },
             userInfo: this
         ) else { return false }
@@ -140,21 +132,18 @@ final class Hotkey {
         activeKeyID = nil
     }
 
-    /// Возвращает true, если событие надо проглотить.
-    private func handle(type: CGEventType, event: CGEvent) -> Bool {
+    private func handle(type: CGEventType, event: CGEvent) {
         // Система глушит tap при перегрузке — поднимаем обратно.
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
             if let tap { CGEvent.tapEnable(tap: tap, enable: true) }
-            return false
+            return
         }
-
-        if type.rawValue == 14 { return handleMedia(event) }
 
         let code = event.getIntegerValueField(.keyboardEventKeycode)
 
         // Обычная клавиша вроде F13 — приходит нажатиями, а не флагами.
         if type == .keyDown || type == .keyUp,
-           let hit = recordKeys.first(where: { !$0.isModifier && !$0.isMedia && $0.keyCode == code }) {
+           let hit = recordKeys.first(where: { !$0.isModifier && $0.keyCode == code }) {
             if type == .keyDown {
                 // Удержание шлёт keyDown пачками — считаем только первый.
                 let repeated = event.getIntegerValueField(.keyboardEventAutorepeat) != 0
@@ -162,7 +151,7 @@ final class Hotkey {
             } else {
                 DispatchQueue.main.async { [weak self] in self?.keyReleased(from: hit.id) }
             }
-            return false
+            return
         }
 
         if type == .flagsChanged {
@@ -170,7 +159,7 @@ final class Hotkey {
             if holdActive || toggleActive, code == modeKey.keyCode, let mask = modeKey.flagMask,
                (event.flags.rawValue & mask) != 0 {
                 DispatchQueue.main.async { [weak self] in self?.handler?(.flipMode) }
-                return false
+                return
             }
 
             if let hit = recordKeys.first(where: { $0.isModifier && $0.keyCode == code }),
@@ -180,13 +169,13 @@ final class Hotkey {
                     pressed ? self?.keyPressed(from: hit.id) : self?.keyReleased(from: hit.id)
                 }
             }
-            return false
+            return
         }
 
         if type == .keyDown {
             if code == Int64(kVK_Escape), toggleActive || holdActive {
                 DispatchQueue.main.async { [weak self] in self?.cancelAll() }
-                return false
+                return
             }
             // Модификатор участвует в наборе спецсимволов (⌥+3 и подобное).
             // Раз при зажатой клавише пошёл обычный набор — это не диктовка,
@@ -195,53 +184,6 @@ final class Hotkey {
             if holdActive {
                 DispatchQueue.main.async { [weak self] in self?.cancelAll() }
             }
-        }
-        return false
-    }
-
-    /// Кнопки на проводе гарнитуры и медиаклавиши клавиатуры.
-    ///
-    /// Приходят системным событием: в data1 упакованы код кнопки и её
-    /// состояние. Своё событие глотаем — иначе центральная кнопка заодно
-    /// поставит музыку на паузу, а боковые изменят громкость.
-    ///
-    /// Двойного тапа у этих кнопок не будет: быстрое двойное нажатие система
-    /// сама превращает в «следующий трек» и присылает уже другой код.
-    /// Остаётся удержание, ради которого всё и затевалось.
-    private func handleMedia(_ event: CGEvent) -> Bool {
-        guard let ns = NSEvent(cgEvent: event), ns.subtype.rawValue == 8 else { return false }
-
-        let data = ns.data1
-        let code = Int((data & 0xFFFF_0000) >> 16)
-        guard let hit = recordKeys.first(where: { $0.mediaCode == code }) else { return false }
-
-        let flags = data & 0x0000_FFFF
-        let pressed = ((flags & 0xFF00) >> 8) == 0x0A
-        // Отпускание не нужно: у кнопки пульта жест другой, см. mediaPressed.
-        if pressed { DispatchQueue.main.async { [weak self] in self?.mediaPressed(from: hit.id) } }
-        return true
-    }
-
-    /// Кнопка пульта работает переключателем, а не рацией, и это не прихоть.
-    ///
-    /// На четырёхконтактном проводе кнопка устроена так, что пока её держат,
-    /// микрофонная линия замкнута и микрофон молчит. Замерено: три записи
-    /// подряд с зажатой кнопкой дали пик ровно 0.0000, а та же гарнитура
-    /// с клавиши на клавиатуре пишет нормально.
-    ///
-    /// Поэтому: нажал — пошла запись, нажал ещё раз — закончилась. Между
-    /// нажатиями кнопка отпущена, и микрофон слышит.
-    private func mediaPressed(from id: String) {
-        if let active = activeKeyID, active != id { return }
-
-        if toggleActive {
-            toggleActive = false
-            activeKeyID = nil
-            handler?(.toggleOff)
-        } else {
-            toggleActive = true
-            activeKeyID = id
-            handler?(.toggleOn)
         }
     }
 

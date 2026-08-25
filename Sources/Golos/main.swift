@@ -37,6 +37,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) { MediaProbe.start(seconds: 900) }
         }
 
+        // «Golos --probe-hid» — разведка сырых HID-устройств: приёмники
+        // радиосистем и прочая железка со своей страницей применения.
+        if arguments.contains("--probe-hid") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { HIDProbe.start(seconds: 900) }
+        }
+
         // «Golos --settings» — то же, что пункт меню. Удобно, когда значок
         // в строке меню не виден, и одинаково с версией для Windows.
         if arguments.contains("--settings") {
