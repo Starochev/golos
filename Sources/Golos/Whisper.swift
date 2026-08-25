@@ -310,6 +310,10 @@ final class Whisper {
         var word: String
         var probability: Double
         var context: String
+        /// Границы отрезка, в котором слово прозвучало, в секундах от начала
+        /// куска. Нужны, чтобы вырезать кусочек звука на послушать.
+        var start: Double
+        var end: Double
     }
 
     /// Разбор с уверенностью по каждому слову — для копилки кандидатов.
@@ -328,6 +332,8 @@ final class Whisper {
             var words: [WordConfidence] = []
             for segment in segments {
                 let context = Whisper.clean(segment["text"] as? String ?? "")
+                let start = segment["start"] as? Double ?? 0
+                let end = segment["end"] as? Double ?? 0
                 guard let pieces = segment["words"] as? [[String: Any]] else { continue }
 
                 var current = ""
@@ -338,7 +344,8 @@ final class Whisper {
                     let word = current.trimmingCharacters(in: .whitespaces)
                         .trimmingCharacters(in: CharacterSet(charactersIn: ".,!?;:«»\"'()"))
                     if !word.isEmpty {
-                        words.append(WordConfidence(word: word, probability: worst, context: context))
+                        words.append(WordConfidence(word: word, probability: worst,
+                                                    context: context, start: start, end: end))
                     }
                     current = ""
                     worst = 1.0

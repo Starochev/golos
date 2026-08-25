@@ -501,6 +501,10 @@ final class Controller {
         if current { hud.hide() }
         let mode = Inserter.Mode(rawValue: config.insertMode) ?? .paste
         Inserter.insert(text, mode: mode)
+        // Пишем длину: если текст не появился в поле, по журналу видно,
+        // что приложение своё дело сделало и текст можно достать заново
+        // пунктом меню «Скопировать последний текст».
+        Log.write("вставлено \(text.count) знаков, способ «\(config.insertMode)»")
         if config.keepHistory { saveHistory(wav: wav, text: text) }
         if current { state = .idle }
         if current { collectCandidates(wav: wav, generation: generation) }
@@ -526,9 +530,12 @@ final class Controller {
         // Начали новую диктовку — разбор бросаем: сервер один, и свежая
         // запись важнее копилки.
         guard index < parts.count, generation == recordingGeneration else { return }
-        whisper.analyzeWords(wav: parts[index], prompt: "") { [weak self] words in
+        let chunk = parts[index]
+        whisper.analyzeWords(wav: chunk, prompt: "") { [weak self] words in
             guard let self, generation == self.recordingGeneration else { return }
-            self.candidates.record(words)
+            self.candidates.record(words) { from, to in
+                AudioSplit.slice(wav: chunk, from: from, to: to)
+            }
             self.analyzeChunks(parts, index: index + 1, generation: generation)
         }
     }

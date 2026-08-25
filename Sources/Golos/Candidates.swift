@@ -16,6 +16,15 @@ struct Candidate: Codable, Identifiable, Equatable {
     var lastSeen: Date
 
     var id: String { word.lowercased() }
+
+    /// Кусочек звука, в котором слово прозвучало. Хранится отдельным файлом:
+    /// история живёт час, а кандидат неделю, и к моменту разбора слушать
+    /// было бы уже нечего.
+    var audioURL: URL {
+        Candidates.audioDirectory.appendingPathComponent("\(Candidates.key(word)).wav")
+    }
+
+    var hasAudio: Bool { FileManager.default.fileExists(atPath: audioURL.path) }
 }
 
 /// Копилка сомнительных слов.
@@ -54,6 +63,10 @@ final class Candidates: ObservableObject {
         Config.directory.appendingPathComponent("candidates.json")
     }
 
+    nonisolated static var audioDirectory: URL {
+        Config.directory.appendingPathComponent("candidates-audio")
+    }
+
     init() { load() }
 
     // MARK: - Сбор
@@ -73,7 +86,10 @@ final class Candidates: ObservableObject {
     /// Слово короче этого в словарь не просится: предлоги, союзы, обрывки.
     private static let minimumLength = 4
 
-    func record(_ words: [Whisper.WordConfidence]) {
+    /// `clip` отдаёт кусочек звука по границам отрезка. Вызывается только для
+    /// слов, которые действительно попали в копилку: резать всё подряд незачем.
+    func record(_ words: [Whisper.WordConfidence],
+                clip: ((Double, Double) -> Data?)? = nil) {
         let now = Date()
         var changed = false
 
@@ -87,11 +103,13 @@ final class Candidates: ObservableObject {
                   !RussianDictionary.shared.knows(key)
             else { continue }
 
+            var freshAudio = false
             if var existing = seen[key] {
                 if item.probability < existing.worst {
                     // Написание берём от самой неуверенной встречи: там ошибка виднее.
                     existing.worst = item.probability
                     existing.word = item.word
+                    freshAudio = true
                 }
                 existing.hits += 1
                 existing.context = item.context
@@ -100,8 +118,16 @@ final class Candidates: ObservableObject {
             } else {
                 seen[key] = Candidate(word: item.word, hits: 1, worst: item.probability,
                                       context: item.context, firstSeen: now, lastSeen: now)
+                freshAudio = true
             }
             changed = true
+
+            // Звук пишем от самой неуверенной встречи: слушать надо худший случай.
+            if freshAudio, let clip, let audio = clip(item.start, item.end), let candidate = seen[key] {
+                try? FileManager.default.createDirectory(at: Candidates.audioDirectory,
+                                                         withIntermediateDirectories: true)
+                try? audio.write(to: candidate.audioURL, options: .atomic)
+            }
         }
 
         if changed { purgeAndSave() }
@@ -111,6 +137,7 @@ final class Candidates: ObservableObject {
 
     /// «Всё верно»: слово распознано правильно, вопрос закрыт.
     func markCorrect(_ candidate: Candidate) {
+        try? FileManager.default.removeItem(at: candidate.audioURL)
         settled[candidate.id] = Date()
         seen[candidate.id] = nil
         purgeAndSave()
@@ -119,6 +146,7 @@ final class Candidates: ObservableObject {
     /// «Скрыть»: решения нет. Слово уходит из списка, но вернётся,
     /// когда распознавание споткнётся о него снова.
     func dismiss(_ candidate: Candidate) {
+        try? FileManager.default.removeItem(at: candidate.audioURL)
         seen[candidate.id] = nil
         purgeAndSave()
     }
@@ -126,12 +154,14 @@ final class Candidates: ObservableObject {
     /// Слово ушло в словарь. Спрашивать о нём больше не надо: даже если
     /// модель по-прежнему в нём сомневается, решение уже принято.
     func accepted(_ candidate: Candidate) {
+        try? FileManager.default.removeItem(at: candidate.audioURL)
         settled[candidate.id] = Date()
         seen[candidate.id] = nil
         purgeAndSave()
     }
 
     func forgetAll() {
+        for (_, candidate) in seen { try? FileManager.default.removeItem(at: candidate.audioURL) }
         seen.removeAll()
         purgeAndSave()
     }
@@ -155,7 +185,10 @@ final class Candidates: ObservableObject {
 
     private func purgeAndSave() {
         let now = Date()
+        let expired = seen.filter { now.timeIntervalSince($0.value.lastSeen) >= Candidates.lifetimeDays * 86400 }
         seen = seen.filter { now.timeIntervalSince($0.value.lastSeen) < Candidates.lifetimeDays * 86400 }
+        // Звук за ушедшими кандидатами не тянем: он никому не нужен.
+        for (_, candidate) in expired { try? FileManager.default.removeItem(at: candidate.audioURL) }
         settled = settled.filter { now.timeIntervalSince($0.value) < Candidates.settledLifetimeDays * 86400 }
         refreshPending()
 
@@ -174,7 +207,7 @@ final class Candidates: ObservableObject {
     }
 
     /// Ключ для сравнения: регистр и пунктуация не важны.
-    static func key(_ word: String) -> String {
+    nonisolated static func key(_ word: String) -> String {
         word.lowercased().trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
     }
 }

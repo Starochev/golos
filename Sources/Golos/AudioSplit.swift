@@ -45,6 +45,26 @@ enum AudioSplit {
         return parts
     }
 
+    /// Вырезает кусочек звука по секундам, с запасом с обеих сторон.
+    /// Запас нужен, чтобы слово не начиналось с обрубленного слога.
+    static func slice(wav: Data, from: Double, to: Double, padding: Double = 0.6) -> Data? {
+        guard wav.count > headerBytes else { return nil }
+        let bytesPerSecond = Double(sampleRate * 2)
+        let body = wav.count - headerBytes
+
+        let start = max(0, Int((from - padding) * bytesPerSecond)) & ~1
+        let end = min(body, Int((to + padding) * bytesPerSecond)) & ~1
+        guard end > start else { return nil }
+
+        let pcm = wav.subdata(in: (headerBytes + start)..<(headerBytes + end))
+        var samples = [Float](repeating: 0, count: pcm.count / 2)
+        pcm.withUnsafeBytes { raw in
+            let ints = raw.bindMemory(to: Int16.self)
+            for i in 0..<samples.count { samples[i] = Float(ints[i]) / 32768 }
+        }
+        return encode(samples)
+    }
+
     static func chunks(wav: Data) -> [Data] {
         let samples = decode(wav)
         let maxLength = Int(maxChunkSeconds * Double(sampleRate))

@@ -1,3 +1,4 @@
+import AVFoundation
 import AppKit
 import SwiftUI
 
@@ -616,6 +617,16 @@ private struct CandidatesTab: View {
             }
 
             HStack(spacing: 6) {
+                if candidate.hasAudio {
+                    Button {
+                        CandidateSound.play(candidate.audioURL)
+                    } label: {
+                        Image(systemName: "play.circle.fill")
+                            .font(.system(size: 16))
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Послушать, что было сказано на самом деле")
+                }
                 TextField("как пишется на самом деле", text: binding(for: candidate))
                     .textFieldStyle(.roundedBorder)
                     .frame(maxWidth: 220)
@@ -673,6 +684,22 @@ private struct CandidatesTab: View {
 
     private func percent(_ value: Double) -> String {
         String(format: "%.0f%%", value * 100)
+    }
+}
+
+/// Проигрывает кусочек записи из копилки кандидатов.
+///
+/// Проигрыватель один на всех и переиспользуется: у AVAudioPlayer нет
+/// надёжного признака «доиграл», а копить их по одному на нажатие значит
+/// течь памятью.
+@MainActor
+private enum CandidateSound {
+    private static var player: AVAudioPlayer?
+
+    static func play(_ url: URL) {
+        player?.stop()
+        player = try? AVAudioPlayer(contentsOf: url)
+        player?.play()
     }
 }
 
