@@ -12,7 +12,9 @@ final class Hotkey {
         case toggleOff      // ещё один тап — распознать
         case cancel         // Escape
         case discard        // одиночный короткий тап — записанное выбросить
+        case flipMode       // вторая клавиша во время записи — сменить режим
     }
+
 
     /// Короче этого удержание считается тапом, а не рацией.
     private let tapThreshold: TimeInterval = 0.4
@@ -32,12 +34,23 @@ final class Hotkey {
     /// ради этого не нужно.
     private var option: HotkeyOption = .fallback
 
+    /// Клавиша, которая во время записи переключает «текст или звук».
+    /// Ничего не запускает и не останавливает, поэтому и настройки под неё нет:
+    /// правый ⌘ рядом с правым ⌥, дотягивается большим пальцем той же руки.
+    /// Если запись и так на правом ⌘, меняемся местами.
+    private var modeKey: HotkeyOption {
+        option.id == "rightCommand" ? HotkeyOption.named("rightOption")
+                                    : HotkeyOption.named("rightCommand")
+    }
+
+
     func setOption(_ newOption: HotkeyOption) {
         guard newOption.id != option.id else { return }
         reset()
         option = newOption
         Log.write("клавиша записи: \(newOption.title)")
     }
+
 
     /// Не запустится без разрешения «Универсальный доступ».
     static func hasAccessibilityPermission(prompt: Bool) -> Bool {
@@ -104,6 +117,7 @@ final class Hotkey {
         let code = event.getIntegerValueField(.keyboardEventKeycode)
         let current = option
 
+
         // Обычная клавиша вроде F13 — приходит нажатиями, а не флагами.
         if !current.isModifier, code == current.keyCode {
             if type == .keyDown {
@@ -113,6 +127,14 @@ final class Hotkey {
             } else if type == .keyUp {
                 DispatchQueue.main.async { [weak self] in self?.keyReleased() }
             }
+            return
+        }
+
+        // Смена режима: только пока идёт запись, только на нажатие.
+        if type == .flagsChanged, holdActive || toggleActive,
+           code == modeKey.keyCode, let mask = modeKey.flagMask,
+           (event.flags.rawValue & mask) != 0 {
+            DispatchQueue.main.async { [weak self] in self?.handler?(.flipMode) }
             return
         }
 

@@ -12,7 +12,10 @@ namespace Golos;
 /// </summary>
 public sealed class HudForm : Form
 {
-    public enum Phase { Recording, Transcribing }
+    public enum Phase { Recording, Transcribing, Message }
+
+    /// <summary>Чем отдать запись: текстом в активное окно или звуком в буфер.</summary>
+    public enum Mode { Text, Audio }
 
     private const int BarCount = 34;
     private readonly float[] levels = new float[BarCount];
@@ -21,6 +24,17 @@ public sealed class HudForm : Form
     private Phase phase = Phase.Recording;
     private Color waveColor = Color.FromArgb(255, 69, 58);
     private float tick;
+    private string message = "";
+
+    private Mode mode = Mode.Text;
+    /// <summary>Положение пилюли: 0 — «Текст», 1 — «Звук». Едет плавно.</summary>
+    private float pill;
+    /// <summary>Щёлкнули по переключателю мышью.</summary>
+    public event Action<Mode>? ModeChanged;
+
+    private const int SwitchWidth = 152;
+    private const int SwitchHeight = 26;
+    private const int PillWidth = 74;
 
     // Появление и уход: содержимое растёт из центра и проявляется.
     // Панель выскакивает поверх чужой работы, и резкое возникновение
@@ -35,7 +49,6 @@ public sealed class HudForm : Form
 
     private const int WS_EX_NOACTIVATE = 0x08000000;
     private const int WS_EX_TOOLWINDOW = 0x00000080;
-    private const int WS_EX_TRANSPARENT = 0x00000020;
 
     protected override bool ShowWithoutActivation => true;
 
@@ -44,7 +57,9 @@ public sealed class HudForm : Form
         get
         {
             var cp = base.CreateParams;
-            cp.ExStyle |= WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_TRANSPARENT;
+            // Без WS_EX_TRANSPARENT: мышь нужна переключателю. Фокус при этом
+            // не уезжает, за это отвечает WS_EX_NOACTIVATE.
+            cp.ExStyle |= WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW;
             return cp;
         }
     }
@@ -55,7 +70,7 @@ public sealed class HudForm : Form
         ShowInTaskbar = false;
         TopMost = true;
         Width = 260;
-        Height = 70;
+        Height = 108;
         BackColor = Color.FromArgb(13, 13, 15);
         DoubleBuffered = true;
         StartPosition = FormStartPosition.Manual;
@@ -67,6 +82,7 @@ public sealed class HudForm : Form
         timer.Tick += (_, _) =>
         {
             Push(levelSource?.Invoke() ?? 0);
+            StepPill();
             Invalidate();
         };
         animation.Tick += (_, _) => StepAnimation();
@@ -74,11 +90,13 @@ public sealed class HudForm : Form
         ApplyScale(0);
     }
 
-    public void ShowWave(Color color, Func<float> source)
+    public void ShowWave(Color color, Mode startMode, Func<float> source)
     {
         waveColor = color;
         levelSource = source;
         phase = Phase.Recording;
+        mode = startMode;
+        pill = startMode == Mode.Audio ? 1f : 0f;
         Reset();
         PositionOnActiveScreen();
         ApplyScale(0);
@@ -93,6 +111,53 @@ public sealed class HudForm : Form
         phase = Phase.Transcribing;
         // Таймер оставляем: точка должна дышать.
         Invalidate();
+    }
+
+    /// <summary>Показать выбранный режим. Хозяин режима не окошко, а TrayApp.</summary>
+    public void SetMode(Mode value)
+    {
+        mode = value;
+        Invalidate();
+    }
+
+    /// <summary>Короткая надпись вместо волны: «Пакую…», потом «В буфере».</summary>
+    public void ShowMessage(string text, int hideAfterMs = 0)
+    {
+        message = text;
+        phase = Phase.Message;
+        Invalidate();
+        if (hideAfterMs <= 0) return;
+        var delay = new System.Windows.Forms.Timer { Interval = hideAfterMs };
+        delay.Tick += (_, _) => { delay.Stop(); delay.Dispose(); HideWave(); };
+        delay.Start();
+    }
+
+    /// <summary>Пилюля догоняет выбранный режим: движение читается как переключение.</summary>
+    private void StepPill()
+    {
+        var target = mode == Mode.Audio ? 1f : 0f;
+        if (Math.Abs(pill - target) < 0.01f) { pill = target; return; }
+        pill += (target - pill) * 0.28f;
+    }
+
+    protected override void OnMouseDown(MouseEventArgs e)
+    {
+        base.OnMouseDown(e);
+        if (phase != Phase.Recording) return;
+        var box = SwitchRect();
+        if (!box.Contains(e.Location)) return;
+        var picked = e.X < box.X + box.Width / 2f ? Mode.Text : Mode.Audio;
+        if (picked == mode) return;
+        mode = picked;
+        ModeChanged?.Invoke(picked);
+        Invalidate();
+    }
+
+    private RectangleF SwitchRect()
+    {
+        // Содержимое: волна 42, отступ 9, переключатель 26 — всё по центру.
+        var top = (Height - (42 + 9 + SwitchHeight)) / 2f + 42 + 9;
+        return new RectangleF((Width - SwitchWidth) / 2f, top, SwitchWidth, SwitchHeight);
     }
 
     public void HideWave()
@@ -210,8 +275,13 @@ public sealed class HudForm : Form
         g.ScaleTransform(scale, scale);
         g.TranslateTransform(-Width / 2f, -Height / 2f);
 
-        if (phase == Phase.Recording) PaintWave(g);
-        else PaintTranscribing(g);
+        if (phase == Phase.Recording)
+        {
+            PaintWave(g);
+            PaintSwitch(g);
+        }
+        else PaintNote(g, phase == Phase.Transcribing ? "Распознаю…" : message,
+                       pulsing: phase == Phase.Transcribing);
 
         g.Restore(state);
     }
@@ -222,29 +292,69 @@ public sealed class HudForm : Form
         const float gap = 3.5f;
         var total = BarCount * width + (BarCount - 1) * gap;
         var x = (Width - total) / 2f;
-        var centerY = Height / 2f;
+        // Волна делит окно с переключателем, поэтому сидит выше центра.
+        var centerY = (Height - (42 + 9 + SwitchHeight)) / 2f + 21;
 
         using var brush = new SolidBrush(waveColor);
         foreach (var level in levels)
         {
-            var height = Math.Max(4f, level * 44f);
+            var height = Math.Max(4f, level * 40f);
             using var path = Rounded(new RectangleF(x, centerY - height / 2f, width, height), width / 2f);
             g.FillPath(brush, path);
             x += width + gap;
         }
     }
 
-    private void PaintTranscribing(Graphics g)
+    /// <summary>
+    /// Переключатель «Текст или Звук». Пилюля переезжает плавно, чтобы
+    /// движение читалось как переключение, а не как перерисовка.
+    /// </summary>
+    private void PaintSwitch(Graphics g)
+    {
+        var box = SwitchRect();
+
+        using (var trough = new SolidBrush(Color.FromArgb(23, 255, 255, 255)))
+        using (var path = Rounded(box, 9))
+            g.FillPath(trough, path);
+
+        var pillRect = new RectangleF(box.X + 2 + pill * (SwitchWidth - PillWidth - 4),
+                                      box.Y + 2, PillWidth, SwitchHeight - 4);
+        using (var brush = new SolidBrush(waveColor))
+        using (var path = Rounded(pillRect, 8))
+            g.FillPath(brush, path);
+
+        // Белую волну не подписать белым по ней же: считаем яркость.
+        var luminance = 0.299 * waveColor.R + 0.587 * waveColor.G + 0.114 * waveColor.B;
+        var onPill = luminance > 153 ? Color.FromArgb(217, 0, 0, 0) : Color.White;
+        var dim = Color.FromArgb(128, 255, 255, 255);
+
+        using var chosenFont = new Font("Segoe UI Semibold", 8.5f);
+        using var plainFont = new Font("Segoe UI", 8.5f);
+        var format = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
+
+        void Label(string title, bool audio)
+        {
+            var selected = (mode == Mode.Audio) == audio;
+            using var brush = new SolidBrush(selected ? onPill : dim);
+            var half = new RectangleF(box.X + (audio ? SwitchWidth / 2f : 0), box.Y,
+                                      SwitchWidth / 2f, SwitchHeight);
+            g.DrawString(title, selected ? chosenFont : plainFont, brush, half, format);
+        }
+        Label("Текст", audio: false);
+        Label("Звук", audio: true);
+        format.Dispose();
+    }
+
+    private void PaintNote(Graphics g, string text, bool pulsing)
     {
         tick += 1;
-        var pulse = 0.75f + 0.6f * (float)((Math.Sin(tick * 0.12) + 1) / 2);
+        var pulse = pulsing ? 0.75f + 0.6f * (float)((Math.Sin(tick * 0.12) + 1) / 2) : 1f;
         var size = 8f * pulse;
 
         using var brush = new SolidBrush(waveColor);
         using var font = new Font("Segoe UI", 9.5f, FontStyle.Regular);
         using var textBrush = new SolidBrush(Color.FromArgb(230, 255, 255, 255));
 
-        var text = "Распознаю…";
         var textSize = g.MeasureString(text, font);
         var totalWidth = size + 8 + textSize.Width;
         var x = (Width - totalWidth) / 2f;

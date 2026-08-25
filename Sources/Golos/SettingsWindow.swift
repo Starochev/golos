@@ -6,13 +6,16 @@ import SwiftUI
 final class SettingsWindow {
     private var window: NSWindow?
     private let store: SettingsStore
+    private let candidates: Candidates
     private let onOpenModelPicker: () -> Void
     private let onCheckUpdates: () -> Void
 
     init(store: SettingsStore,
+         candidates: Candidates,
          onOpenModelPicker: @escaping () -> Void,
          onCheckUpdates: @escaping () -> Void) {
         self.store = store
+        self.candidates = candidates
         self.onOpenModelPicker = onOpenModelPicker
         self.onCheckUpdates = onCheckUpdates
     }
@@ -28,6 +31,7 @@ final class SettingsWindow {
         }
 
         let view = SettingsView(store: store,
+                                candidates: candidates,
                                 onOpenModelPicker: onOpenModelPicker,
                                 onCheckUpdates: onCheckUpdates)
         let hosting = NSHostingController(rootView: view)
@@ -55,6 +59,7 @@ private final class WindowCloser: NSObject, NSWindowDelegate {
 
 private struct SettingsView: View {
     @ObservedObject var store: SettingsStore
+    @ObservedObject var candidates: Candidates
     let onOpenModelPicker: () -> Void
     let onCheckUpdates: () -> Void
 
@@ -68,6 +73,9 @@ private struct SettingsView: View {
 
             ReplacementsTab(store: store)
                 .tabItem { Label("Замены", systemImage: "arrow.left.arrow.right") }
+
+            CandidatesTab(store: store, candidates: candidates)
+                .tabItem { Label("Кандидаты", systemImage: "questionmark.bubble") }
 
             AboutTab(onCheckUpdates: onCheckUpdates)
                 .tabItem { Label("О программе", systemImage: "info.circle") }
@@ -201,6 +209,16 @@ private struct GeneralTab: View {
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+
+                Picker("Знак в конце фразы", selection: $store.config.finalPunctuation) {
+                    Text("Как распознано").tag("keep")
+                    Text("Убирать точку").tag("period")
+                    Text("Убирать любой знак").tag("any")
+                }
+                Text("Знаки препинания расставляет сама модель, по интонации и смыслу. Отдельной ручки у неё нет, и вопросительный знак она иногда пропускает. Убрать лишнее с конца можно, доставить нужное — нет. На расшифровку файлов не влияет.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             } header: {
                 Text("Вставка").font(.system(size: 12, weight: .semibold))
             }
@@ -221,6 +239,7 @@ private struct GeneralTab: View {
             } header: {
                 Text("Горячая клавиша").font(.system(size: 12, weight: .semibold))
             }
+
 
             Section {
                 Picker("Язык речи", selection: $store.config.language) {
@@ -492,6 +511,146 @@ private struct VocabularyTab: View {
     }
 }
 
+// MARK: - Кандидаты
+
+/// Слова, в которых модель сомневалась, с предложением занести их в словарь.
+///
+/// Показываем не всё подряд: спрашиваем только про те, что споткнулись
+/// повторно. Иначе список забивается обычными русскими словами, сказанными
+/// быстро — их в час диктовки набирается несколько сотен.
+private struct CandidatesTab: View {
+    @ObservedObject var store: SettingsStore
+    @ObservedObject var candidates: Candidates
+    /// Латинское написание, которое человек набирает для конкретного слова.
+    @State private var drafts: [String: String] = [:]
+    @State private var problem: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Слова, в которых распознавание сомневалось")
+                .font(.system(size: 13, weight: .semibold))
+            Text("Модель отдаёт уверенность по каждому слову. Сюда попадает то, что она разобрала неуверенно и чего нет в словаре русского языка: обычно это англицизм, записанный кириллицей. Напиши, как слово пишется на самом деле, и оно уйдёт в словарь распознавания.")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if let problem {
+                Text(problem)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.orange)
+            }
+
+            if candidates.pending.isEmpty {
+                emptyState
+            } else {
+                List {
+                    ForEach(candidates.pending) { candidate in
+                        row(candidate)
+                            .padding(.vertical, 4)
+                    }
+                }
+                .frame(maxHeight: .infinity)
+            }
+
+            footer
+        }
+    }
+
+    private var emptyState: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Spacer()
+            Text(store.config.collectCandidates
+                 ? "Пока пусто. Слово попадает сюда, когда распознавание о него спотыкается, а словарь русского языка его не знает."
+                 : "Сбор выключен. Включи его внизу, и после нескольких диктовок здесь появятся слова.")
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private func row(_ candidate: Candidate) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 8) {
+                Text(candidate.word)
+                    .font(.system(size: 13, weight: .medium))
+                Text(candidate.hits > 1
+                     ? "\(candidate.hits) раза, уверенность \(percent(candidate.worst))"
+                     : "уверенность \(percent(candidate.worst))")
+                    .font(.system(size: 11).monospacedDigit())
+                    .foregroundStyle(.secondary)
+                Spacer()
+            }
+
+            if !candidate.context.isEmpty {
+                Text("«\(candidate.context)»")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            HStack(spacing: 6) {
+                TextField("как пишется на самом деле", text: binding(for: candidate))
+                    .textFieldStyle(.roundedBorder)
+                    .frame(maxWidth: 220)
+                    .onSubmit { accept(candidate) }
+                Button("В словарь") { accept(candidate) }
+                    .disabled(draft(for: candidate).isEmpty)
+                    .help("Занести написание в словарь распознавания")
+                Button("Всё верно") { candidates.markCorrect(candidate) }
+                    .help("Слово распознано правильно. Больше о нём не спросят")
+                Button("Скрыть") { candidates.dismiss(candidate) }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(.secondary)
+                    .help("Убрать из списка сейчас. Слово вернётся, если распознавание споткнётся о него снова")
+            }
+        }
+    }
+
+    private var footer: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Divider()
+            Toggle("Собирать сомнительные слова", isOn: Binding(
+                get: { store.config.collectCandidates },
+                set: { store.config.collectCandidates = $0 }
+            ))
+            Text("Разбор идёт фоном, уже после того как текст вставлен: на саму диктовку он не влияет. Кандидат без ответа исчезает сам через неделю, решённое молчит три месяца.")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            if !candidates.pending.isEmpty {
+                Button("Очистить список") { candidates.forgetAll() }
+                    .buttonStyle(.borderless)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func draft(for candidate: Candidate) -> String {
+        (drafts[candidate.id] ?? "").trimmingCharacters(in: .whitespaces)
+    }
+
+    private func binding(for candidate: Candidate) -> Binding<String> {
+        Binding(get: { drafts[candidate.id] ?? "" },
+                set: { drafts[candidate.id] = $0 })
+    }
+
+    private func accept(_ candidate: Candidate) {
+        let term = draft(for: candidate)
+        guard !term.isEmpty else { return }
+        problem = store.addTerm(term)
+        guard problem == nil else { return }
+        drafts[candidate.id] = nil
+        candidates.accepted(candidate)
+    }
+
+    private func percent(_ value: Double) -> String {
+        String(format: "%.0f%%", value * 100)
+    }
+}
+
 // MARK: - Замены
 
 private struct ReplacementsTab: View {
@@ -580,6 +739,7 @@ private struct AboutTab: View {
                 shortcut("Держать \(HotkeyOption.named(Config.load().hotkey).title)", "запись, пока держишь")
                 shortcut("Двойной тап", "запись до следующего тапа")
                 shortcut("Escape во время записи", "отменить без вставки")
+                shortcut("Правый ⌘ во время записи", "переключить: текст или звук")
             }
 
             Divider()
@@ -592,6 +752,21 @@ private struct AboutTab: View {
                     NSWorkspace.shared.open(dir)
                 }
                 Button("Журнал") { NSWorkspace.shared.open(Log.fileURL) }
+            }
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Разработчик").font(.system(size: 12, weight: .semibold))
+                Text("Станислав Рочев").font(.system(size: 12))
+                HStack(spacing: 12) {
+                    Link("Телеграм", destination: URL(string: "https://t.me/starochev")!)
+                    Link("Instagram", destination: URL(string: "https://instagram.com/starochev")!)
+                }
+                .font(.system(size: 11))
+                Text("Пиши, если что-то не работает или чего-то не хватает.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
             }
 
             Spacer()

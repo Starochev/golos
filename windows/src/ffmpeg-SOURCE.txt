@@ -14,11 +14,13 @@ ffmpeg 7.1.1, https://ffmpeg.org/releases/ffmpeg-7.1.1.tar.xz
   --enable-parser=opus,vorbis,aac,aac_latm,mpegaudio,flac,ac3 \
   --enable-protocol=file,pipe \
   --enable-filter=aresample,aformat,anull,atrim \
-  --enable-muxer=wav \
+  --enable-muxer=wav,ogg \
   --enable-encoder=pcm_s16le \
   --enable-cross-compile \
   --cross-prefix=x86_64-w64-mingw32- \
   --arch=x86_64 \
   --target-os=mingw32 \
-  --pkg-config=false \
   --extra-ldflags=-static \
+  --enable-libopus \
+  --enable-encoder=libopus \
+  --pkg-config=pkg-config \

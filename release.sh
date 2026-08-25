@@ -1,5 +1,8 @@
 #!/bin/bash
-# Собирает релиз: .app → .dmg → подпись → appcast.xml → релиз на GitHub.
+# Собирает релиз: .app, .dmg, подпись, appcast.xml, релиз на GitHub.
+#
+# Заметки к выпуску обязательны и берутся из CHANGELOG.md: без раздела
+# «## Голос X.Y.Z» скрипт откажется работать.
 #
 # Приватный ключ EdDSA лежит в связке ключей (создан ./setup-signing.sh
 # и generate_keys) и в репозиторий не попадает: без него подделать
@@ -28,6 +31,42 @@ STAGING="$DIST/staging"
 if [ ! -x "$SPARKLE_BIN/generate_appcast" ]; then
     echo "Нет инструментов Sparkle — сначала: swift build -c release" >&2
     exit 1
+fi
+
+# Заметки к выпуску берём из CHANGELOG.md и требуем их наличия.
+# Без этого в релизе оказывается «Обновление 1.2.3», по которому невозможно
+# понять, чем он отличается от предыдущего.
+NOTES=$(python3 - "$VERSION" <<'PYTHON'
+import re, sys, pathlib
+version = sys.argv[1]
+text = pathlib.Path("CHANGELOG.md").read_text()
+for block in re.split(r"\n## ", text)[1:]:
+    head, _, body = block.partition("\n")
+    if f"Голос {version}" not in head:
+        continue
+    date, _, rest = body.strip().partition("\n")
+    print(date.strip())
+    print()
+    print(rest.strip())
+    break
+PYTHON
+)
+
+if [ -z "$NOTES" ]; then
+    echo "В CHANGELOG.md нет раздела «## Голос $VERSION»." >&2
+    echo "Сначала опиши, что изменилось, потом выпускай." >&2
+    exit 1
+fi
+
+NOTES="$NOTES
+
+Полный список изменений: [CHANGELOG.md](https://github.com/$REPO/blob/main/CHANGELOG.md)"
+
+# README устаревает первым: он единственное, что человек читает до установки.
+LAST_TAG=$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || true)
+if [ -n "$LAST_TAG" ] && git diff --quiet "$LAST_TAG" -- README.md GUIDE.md; then
+    echo "Внимание: README.md и GUIDE.md не менялись с $LAST_TAG."
+    echo "Если функции изменились, их стоит описать до выпуска."
 fi
 
 echo "$VERSION" > VERSION
@@ -102,7 +141,7 @@ gh release create "v$VERSION" \
     "$FEED"/* \
     --repo "$REPO" \
     --title "Голос $VERSION" \
-    --notes "Обновление $VERSION" \
+    --notes "$NOTES" \
     || gh release upload "v$VERSION" "$FEED"/* --repo "$REPO" --clobber
 
 echo

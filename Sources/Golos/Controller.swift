@@ -41,6 +41,12 @@ final class Controller {
     /// Файлы, пришедшие до готовности движка.
     private var pendingFiles: [URL] = []
     private lazy var settingsStore = SettingsStore()
+    /// Слова, в которых модель сомневалась. Заполняется фоном после диктовки.
+    private lazy var candidates = Candidates()
+    /// Чем отдать текущую запись: текстом в поле или звуком в буфер.
+    /// Хозяин здесь, а не в окошке: переключать можно и с выключенным окошком,
+    /// тогда режим видно по значку в строке меню.
+    private(set) var captureMode: RecorderHUD.Mode = .text
     /// Смена языка или модели требует перезапуска движка. Гасим дребезг:
     /// пока пользователь щёлкает по списку, перезапускать нет смысла.
     private var engineReloadWork: DispatchWorkItem?
@@ -81,6 +87,7 @@ final class Controller {
             }
             settingsWindow = SettingsWindow(
                 store: settingsStore,
+                candidates: candidates,
                 onOpenModelPicker: { [weak self] in self?.showModelPicker() },
                 onCheckUpdates: { [weak self] in self?.onCheckUpdates?() }
             )
@@ -265,6 +272,37 @@ final class Controller {
             endRecording(discard: false)
         case .discard, .cancel:
             endRecording(discard: true)
+        case .flipMode:
+            guard case .recording = state else { return }
+            setCaptureMode(captureMode == .text ? .audio : .text)
+            hud.setMode(captureMode)
+        }
+    }
+
+    private func setCaptureMode(_ mode: RecorderHUD.Mode) {
+        guard mode != captureMode else { return }
+        captureMode = mode
+        Log.write("режим записи: \(mode == .audio ? "звук" : "текст")")
+        onCaptureModeChange?()
+    }
+
+    /// Значку в строке меню надо перерисоваться: без окошка он единственный,
+    /// кто показывает выбранный режим.
+    var onCaptureModeChange: (() -> Void)?
+
+    /// Пакует запись в голосовое и кладёт в буфер файлом.
+    private func exportVoice(wav: Data) {
+        VoiceMessage.copyToClipboard(wav: wav) { [weak self] result in
+            switch result {
+            case .success(let url):
+                let seconds = Int(Controller.duration(ofWav: wav).rounded())
+                Log.write("голосовое в буфере: \(url.lastPathComponent), \(seconds) с")
+                self?.hud.showMessage("В буфере, \(seconds) с", hideAfter: 1.4)
+            case .failure(let error):
+                Log.write("голосовое не собралось: \(error.localizedDescription)")
+                self?.hud.hide()
+                self?.state = .failed(error.localizedDescription)
+            }
         }
     }
 
@@ -292,13 +330,16 @@ final class Controller {
         // Словарь мог поменяться между диктовками — перечитываем.
         config = Config.load()
         recordingGeneration += 1
+        // Каждый раз с чистого листа: звук уходит только по осознанному выбору.
+        captureMode = .text
 
         do {
             try recorder.start()
             state = .recording
             play(.start)
             if config.showHUD {
-                hud.show(color: WaveTheme.color(for: config)) { [weak self] in
+                hud.onModeChange = { [weak self] mode in self?.setCaptureMode(mode) }
+                hud.show(color: WaveTheme.color(for: config), mode: captureMode) { [weak self] in
                     self?.recorder.level ?? 0
                 }
             }
@@ -320,6 +361,16 @@ final class Controller {
             // Слишком короткий фрагмент — молча возвращаемся в покой.
             hud.hide()
             state = .idle
+            return
+        }
+
+        // Переключатель в окошке решает, чем отдать надиктованное.
+        // Звуком — значит распознавать нечего, сразу пакуем и кладём в буфер.
+        if captureMode == .audio {
+            state = .idle
+            play(.stop)
+            hud.showMessage("Пакую…")
+            exportVoice(wav: wav)
             return
         }
 
@@ -431,9 +482,10 @@ final class Controller {
     /// Всё распознано — вставляем и прибираем состояние.
     private func finish(text raw: String, wav: Data, generation: Int) {
         let current = generation == recordingGeneration
-        let text = config.applyReplacements(
-            to: Hallucination.strippingTrailingInvention(
-                Hallucination.collapsingTrailingRepeats(raw)))
+        let text = config.applyingFinalPunctuation(
+            to: config.applyReplacements(
+                to: Hallucination.strippingTrailingInvention(
+                    Hallucination.collapsingTrailingRepeats(raw))))
         Log.write("распознано: \(text)")
 
         guard !text.isEmpty else {
@@ -447,6 +499,34 @@ final class Controller {
         Inserter.insert(text, mode: mode)
         if config.keepHistory { saveHistory(wav: wav, text: text) }
         if current { state = .idle }
+        if current { collectCandidates(wav: wav, generation: generation) }
+    }
+
+    /// Разбор слов, в которых модель сомневалась.
+    ///
+    /// Идёт после вставки, а не вместо неё: уверенность живёт только
+    /// в подробном ответе сервера, а он на записи в 17 секунд отвечает
+    /// на полсекунды дольше. Ждать эти полсекунды на каждой фразе незачем,
+    /// поэтому платим лишним проходом, но уже в фоне.
+    ///
+    /// Куски те же, что при распознавании: whisper разбирает окнами по
+    /// 30 секунд, и целую длинную запись одним запросом отдавать нельзя.
+    /// Словарь при этом не передаём: он и так подсказывает модели ответ,
+    /// а нам нужна её собственная неуверенность.
+    private func collectCandidates(wav: Data, generation: Int) {
+        guard config.collectCandidates else { return }
+        analyzeChunks(AudioSplit.chunks(wav: wav), index: 0, generation: generation)
+    }
+
+    private func analyzeChunks(_ parts: [Data], index: Int, generation: Int) {
+        // Начали новую диктовку — разбор бросаем: сервер один, и свежая
+        // запись важнее копилки.
+        guard index < parts.count, generation == recordingGeneration else { return }
+        whisper.analyzeWords(wav: parts[index], prompt: "") { [weak self] words in
+            guard let self, generation == self.recordingGeneration else { return }
+            self.candidates.record(words)
+            self.analyzeChunks(parts, index: index + 1, generation: generation)
+        }
     }
 
     // MARK: - Мелочи

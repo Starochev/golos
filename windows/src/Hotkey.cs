@@ -13,7 +13,7 @@ namespace Golos;
 /// </summary>
 public sealed class Hotkey : IDisposable
 {
-    public enum Event { StartHold, FinishHold, ToggleOn, ToggleOff, Cancel, Discard }
+    public enum Event { StartHold, FinishHold, ToggleOn, ToggleOff, Cancel, Discard, FlipMode }
 
     private const int WH_KEYBOARD_LL = 13;
     private const int WM_KEYDOWN = 0x0100;
@@ -24,6 +24,17 @@ public sealed class Hotkey : IDisposable
 
     /// <summary>Какая клавиша слушается. Меняется на лету.</summary>
     private HotkeyOption option = HotkeyOption.Fallback;
+
+    /// <summary>
+    /// Клавиша, которая во время записи переключает «текст или звук».
+    /// Ничего не запускает и не останавливает, поэтому настройки под неё нет.
+    /// Если запись и так на правом Ctrl, меняемся местами.
+    /// </summary>
+    private HotkeyOption ModeKey => option.Id == "rightControl"
+        ? HotkeyOption.Named("rightOption")
+        : HotkeyOption.Named("rightControl");
+
+    private bool modeKeyDown;
 
     public void SetOption(HotkeyOption newOption)
     {
@@ -71,6 +82,7 @@ public sealed class Hotkey : IDisposable
         toggleActive = false;
         holdActive = false;
         keyDownAt = null;
+        modeKeyDown = false;
     }
 
     private IntPtr HookProc(int nCode, IntPtr wParam, IntPtr lParam)
@@ -96,6 +108,19 @@ public sealed class Hotkey : IDisposable
             // мешать они всё равно никому не будут.
             return current.IsModifier ? (IntPtr)1 : CallNextHookEx(hook, nCode, wParam, lParam);
         }
+
+        // Смена режима: только пока идёт запись, только на нажатие.
+        if (info.vkCode == (uint)ModeKey.VirtualKey && (holdActive || toggleActive))
+        {
+            if (down && !modeKeyDown)
+            {
+                modeKeyDown = true;
+                handler(Event.FlipMode);
+            }
+            else if (up) modeKeyDown = false;
+            return ModeKey.IsModifier ? (IntPtr)1 : CallNextHookEx(hook, nCode, wParam, lParam);
+        }
+        if (up && info.vkCode == (uint)ModeKey.VirtualKey) modeKeyDown = false;
 
         if (down && info.vkCode == VK_ESCAPE && (holdActive || toggleActive))
         {
@@ -169,6 +194,7 @@ public sealed class Hotkey : IDisposable
         toggleActive = false;
         holdActive = false;
         keyDownAt = null;
+        modeKeyDown = false;
         handler(Event.Cancel);
     }
 

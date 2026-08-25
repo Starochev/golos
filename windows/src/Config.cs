@@ -39,6 +39,17 @@ public sealed class Config
     /// Ключ только для Windows, версия для macOS его не знает.
     /// </summary>
     public string EnginePath { get; set; } = "";
+    /// <summary>
+    /// Что делать со знаком в конце распознанной фразы:
+    /// keep — оставить как распознано, period — убрать точку,
+    /// any — убрать любой знак.
+    /// </summary>
+    public string FinalPunctuation { get; set; } = "keep";
+    /// <summary>
+    /// Собирать слова, в которых модель сомневалась, и предлагать их в словарь.
+    /// Разбор идёт фоном, уже после вставки текста.
+    /// </summary>
+    public bool CollectCandidates { get; set; } = true;
     public int Port { get; set; } = 8178;
     public int Threads { get; set; } = 8;
     public bool Sounds { get; set; } = true;
@@ -96,25 +107,13 @@ public sealed class Config
             }
         }
 
+        // Словарь и замены остаются пустыми намеренно. У каждого свои слова,
+        // а чужой список только съедает лимит подсказки: место в нём считанное,
+        // и занимать его словами, которые человек не произносит, вредно.
         var config = new Config
         {
             ModelPath = FindModel() ?? "",
-            VadModelPath = FindVad() ?? "",
-            Vocabulary = new List<string>
-            {
-                "Claude", "Cursor", "MCP", "API", "endpoint", "webhook", "deploy",
-                "commit", "merge", "rebase", "pull request", "branch", "CI",
-                "GitHub", "npm", "Docker", "Postgres", "Prisma", "Next.js",
-                "React", "TypeScript", "Tailwind", "Vercel", "Redis", "SQL",
-                "JSON", "backend", "frontend", "staging", "production",
-                "environment variables", "migration", "schema", "query", "cache"
-            },
-            Replacements = new List<Replacement>
-            {
-                new() { From = "верселе", To = "Vercel" },
-                new() { From = "клод", To = "Claude" },
-                new() { From = "гитхаб", To = "GitHub" }
-            }
+            VadModelPath = FindVad() ?? ""
         };
         config.Save();
         return config;
@@ -148,6 +147,30 @@ public sealed class Config
         }
         if (dropped > 0) Log.Write($"словарь длиннее лимита whisper: {dropped} терминов не вошло");
         return string.Join(", ", kept) + ".";
+    }
+
+    /// <summary>
+    /// Срезает знак в конце фразы, если так просили в настройках.
+    ///
+    /// Знаки препинания ставит сама модель, отдельной ручки у неё нет.
+    /// Единственное, что можно сделать снаружи, это убрать лишнее с конца.
+    /// Многоточие не трогаем: откусить от него одну точку хуже, чем оставить.
+    /// </summary>
+    public string ApplyFinalPunctuation(string text)
+    {
+        switch (FinalPunctuation)
+        {
+            case "period":
+                if (!text.EndsWith(".") || text.EndsWith("..")) return text;
+                return text[..^1];
+            case "any":
+                var result = text;
+                while (result.Length > 0 && ".,!?;:".Contains(result[^1]))
+                    result = result[..^1];
+                return result.Length == 0 ? text : result;
+            default:
+                return text;
+        }
     }
 
     public string ApplyReplacements(string text)

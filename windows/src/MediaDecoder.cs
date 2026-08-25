@@ -94,6 +94,9 @@ public static class MediaDecoder
         finally { try { if (File.Exists(temp)) File.Delete(temp); } catch { } }
     }
 
+    /// <summary>Тот же поиск, но снаружи: им пользуется сжатие голосовых.</summary>
+    public static string? FindFfmpegPublic() => FindFfmpeg();
+
     private static string? FindFfmpeg()
     {
         var beside = Path.Combine(AppContext.BaseDirectory, "ffmpeg.exe");

@@ -183,6 +183,56 @@ public sealed class Whisper : IDisposable
         return segments;
     }
 
+    /// <summary>Слово с уверенностью модели и фразой, в которой оно прозвучало.</summary>
+    public sealed record WordConfidence(string Word, double Probability, string Context);
+
+    /// <summary>
+    /// Разбор с уверенностью по каждому слову, для копилки кандидатов.
+    ///
+    /// Сервер отдаёт вероятности не по словам, а по токенам, и слово приезжает
+    /// кусками: «баз», «ы». У куска-продолжения нет ведущего пробела, по нему
+    /// куски и склеиваются обратно. Уверенность склеенного слова берём худшую
+    /// из кусков: слово испорчено настолько, насколько испорчена худшая часть.
+    /// </summary>
+    public async Task<List<WordConfidence>> AnalyzeWordsAsync(byte[] wav, string prompt)
+    {
+        var words = new List<WordConfidence>();
+        var body = await RequestAsync(wav, prompt, verbose: true);
+        if (body == null) return words;
+
+        using var document = JsonDocument.Parse(body);
+        if (!document.RootElement.TryGetProperty("segments", out var segments)) return words;
+
+        foreach (var segment in segments.EnumerateArray())
+        {
+            var context = Clean(segment.TryGetProperty("text", out var t) ? t.GetString() ?? "" : "");
+            if (!segment.TryGetProperty("words", out var pieces)) continue;
+
+            var current = "";
+            var worst = 1.0;
+            void Flush()
+            {
+                // Пунктуация приезжает приклеенной: «бэкап.», «менеджеров,».
+                var word = current.Trim().Trim('.', ',', '!', '?', ';', ':', '«', '»', '"', '\'', '(', ')');
+                if (word.Length > 0) words.Add(new WordConfidence(word, worst, context));
+                current = "";
+                worst = 1.0;
+            }
+
+            foreach (var piece in pieces.EnumerateArray())
+            {
+                var raw = piece.TryGetProperty("word", out var w) ? w.GetString() ?? "" : "";
+                var probability = piece.TryGetProperty("probability", out var p)
+                    && p.ValueKind == JsonValueKind.Number ? p.GetDouble() : 1.0;
+                if (raw.StartsWith(" ") && current.Length > 0) Flush();
+                current += raw.Trim();
+                worst = Math.Min(worst, probability);
+            }
+            Flush();
+        }
+        return words;
+    }
+
     public async Task<string?> TranscribeAsync(byte[] wav, string prompt)
     {
         var body = await RequestAsync(wav, prompt, verbose: false);

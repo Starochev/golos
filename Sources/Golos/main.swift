@@ -31,8 +31,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
+        // «Golos --settings» — то же, что пункт меню. Удобно, когда значок
+        // в строке меню не виден, и одинаково с версией для Windows.
+        if arguments.contains("--settings") {
+            DispatchQueue.main.async { [weak self] in self?.controller.showSettings() }
+        }
+
         controller.onCheckUpdates = { [weak self] in self?.updater.checkNowBringingToFront() }
         controller.onHotkeyChanged = { [weak self] in self?.refreshHint() }
+        // Режим меняется посреди записи, а состояние при этом не меняется:
+        // значок надо перерисовать отдельно.
+        controller.onCaptureModeChange = { [weak self] in self?.animateIcon() }
         controller.start()
         render(controller.state)
     }
@@ -174,9 +183,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let button = statusItem.button else { return }
         switch controller.state {
         case .recording:
+            let audio = controller.captureMode == .audio
             button.image = MenuBarIcon.image(
                 for: .recording(level: CGFloat(controller.micLevel),
-                                color: controller.menuBarWaveColor))
+                                color: controller.menuBarWaveColor,
+                                audio: audio))
+            statusLine.title = audio ? "Идёт запись: звук" : "Идёт запись: текст"
         case .transcribing:
             transcribePhase += 0.32
             button.image = MenuBarIcon.image(for: .transcribing(phase: transcribePhase))
