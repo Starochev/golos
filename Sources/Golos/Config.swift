@@ -42,6 +42,14 @@ struct Config: Codable {
     /// Разбор идёт фоном, уже после вставки текста: он стоит ещё одного прохода
     /// распознавания, и ждать его на каждой фразе незачем.
     var collectCandidates: Bool = true
+    /// Имя микрофона. Пусто — тот, что выбран в системе. Хранится имя,
+    /// а не номер: номера у звуковых устройств перетасовываются, а имя
+    /// переносится вместе с конфигом. Ключ общий с версией для Windows.
+    var inputDevice: String = ""
+    /// Вторая клавиша записи: идентификатор из HotkeyOption.all.
+    /// Пусто — выключена. Нужна, чтобы кнопка на гарнитуре и обычная клавиша
+    /// работали одновременно, а не через настройки.
+    var secondHotkey: String = ""
     /// Что делать со знаком в конце распознанной фразы:
     /// "keep" — оставить как распознано, "period" — убрать точку,
     /// "any" — убрать любой знак.
@@ -111,6 +119,8 @@ struct Config: Codable {
             ?? fallback.fileOutputFolder
         keepConvertedAudio = try c.decodeIfPresent(Bool.self, forKey: .keepConvertedAudio)
             ?? fallback.keepConvertedAudio
+        inputDevice = try c.decodeIfPresent(String.self, forKey: .inputDevice) ?? fallback.inputDevice
+        secondHotkey = try c.decodeIfPresent(String.self, forKey: .secondHotkey) ?? fallback.secondHotkey
         finalPunctuation = try c.decodeIfPresent(String.self, forKey: .finalPunctuation) ?? fallback.finalPunctuation
         collectCandidates = try c.decodeIfPresent(Bool.self, forKey: .collectCandidates) ?? fallback.collectCandidates
         keepHistory = try c.decodeIfPresent(Bool.self, forKey: .keepHistory) ?? fallback.keepHistory

@@ -114,6 +114,7 @@ final class Controller {
     func applyHotkey() {
         config = Config.load()
         hotkey.setOption(HotkeyOption.named(config.hotkey))
+        hotkey.setSecondOption(config.secondHotkey.isEmpty ? nil : HotkeyOption.named(config.secondHotkey))
     }
 
     private func scheduleEngineReload() {
@@ -219,6 +220,7 @@ final class Controller {
         let ok = hotkey.start { [weak self] event in
             self?.handle(event)
         }
+        hotkey.setSecondOption(config.secondHotkey.isEmpty ? nil : HotkeyOption.named(config.secondHotkey))
         if ok {
             hotkeyAttached = true
             Log.write("горячая клавиша слушается")
@@ -334,7 +336,9 @@ final class Controller {
         captureMode = .text
 
         do {
+            recorder.preferredDevice = config.inputDevice
             try recorder.start()
+            Log.write("запись пошла, микрофон «\(recorder.activeInputName())»")
             state = .recording
             play(.start)
             if config.showHUD {

@@ -31,6 +31,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
+        // «Golos --probe-media» — разведка кнопок пультов: что присылает
+        // гарнитура, AirPods или приёмник радиосистемы. Пишет в журнал.
+        if arguments.contains("--probe-media") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { MediaProbe.start(seconds: 900) }
+        }
+
         // «Golos --settings» — то же, что пункт меню. Удобно, когда значок
         // в строке меню не виден, и одинаково с версией для Windows.
         if arguments.contains("--settings") {

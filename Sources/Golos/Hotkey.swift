@@ -34,13 +34,25 @@ final class Hotkey {
     /// ради этого не нужно.
     private var option: HotkeyOption = .fallback
 
+    /// Вторая клавиша записи. Работает наравне с основной: провод гарнитуры
+    /// не всегда под рукой, а менять настройку ради каждого случая — дичь.
+    private var secondOption: HotkeyOption?
+
+    /// Обе клавиши записи. Порядок важен только для поиска совпадения.
+    private var recordKeys: [HotkeyOption] { [option, secondOption].compactMap { $0 } }
+
+    /// Какая клавиша начала текущий жест. Вторая в чужой жест не лезет.
+    private var activeKeyID: String?
+
     /// Клавиша, которая во время записи переключает «текст или звук».
     /// Ничего не запускает и не останавливает, поэтому и настройки под неё нет:
     /// правый ⌘ рядом с правым ⌥, дотягивается большим пальцем той же руки.
     /// Если запись и так на правом ⌘, меняемся местами.
+    /// Берём первый свободный модификатор: занятый под запись не годится.
     private var modeKey: HotkeyOption {
-        option.id == "rightCommand" ? HotkeyOption.named("rightOption")
-                                    : HotkeyOption.named("rightCommand")
+        let taken = Set(recordKeys.map(\.id))
+        let order = ["rightCommand", "rightOption", "rightControl", "rightShift"]
+        return HotkeyOption.named(order.first { !taken.contains($0) } ?? "rightCommand")
     }
 
 
@@ -48,7 +60,17 @@ final class Hotkey {
         guard newOption.id != option.id else { return }
         reset()
         option = newOption
+        if secondOption?.id == newOption.id { secondOption = nil }
         Log.write("клавиша записи: \(newOption.title)")
+    }
+
+    /// Вторая клавиша. nil — выключена. Совпасть с основной не может.
+    func setSecondOption(_ newOption: HotkeyOption?) {
+        let resolved = (newOption?.id == option.id) ? nil : newOption
+        guard resolved?.id != secondOption?.id else { return }
+        reset()
+        secondOption = resolved
+        Log.write("вторая клавиша записи: \(resolved?.title ?? "выключена")")
     }
 
 
@@ -111,6 +133,7 @@ final class Hotkey {
         toggleActive = false
         holdActive = false
         keyDownAt = nil
+        activeKeyID = nil
     }
 
     /// Возвращает true, если событие надо проглотить.
@@ -124,26 +147,35 @@ final class Hotkey {
         if type.rawValue == 14 { return handleMedia(event) }
 
         let code = event.getIntegerValueField(.keyboardEventKeycode)
-        let current = option
-
 
         // Обычная клавиша вроде F13 — приходит нажатиями, а не флагами.
-        if !current.isModifier, !current.isMedia, code == current.keyCode {
+        if type == .keyDown || type == .keyUp,
+           let hit = recordKeys.first(where: { !$0.isModifier && !$0.isMedia && $0.keyCode == code }) {
             if type == .keyDown {
                 // Удержание шлёт keyDown пачками — считаем только первый.
                 let repeated = event.getIntegerValueField(.keyboardEventAutorepeat) != 0
-                if !repeated { DispatchQueue.main.async { [weak self] in self?.keyPressed() } }
-            } else if type == .keyUp {
-                DispatchQueue.main.async { [weak self] in self?.keyReleased() }
+                if !repeated { DispatchQueue.main.async { [weak self] in self?.keyPressed(from: hit.id) } }
+            } else {
+                DispatchQueue.main.async { [weak self] in self?.keyReleased(from: hit.id) }
             }
             return false
         }
 
-        // Смена режима: только пока идёт запись, только на нажатие.
-        if type == .flagsChanged, holdActive || toggleActive,
-           code == modeKey.keyCode, let mask = modeKey.flagMask,
-           (event.flags.rawValue & mask) != 0 {
-            DispatchQueue.main.async { [weak self] in self?.handler?(.flipMode) }
+        if type == .flagsChanged {
+            // Смена режима: только пока идёт запись, только на нажатие.
+            if holdActive || toggleActive, code == modeKey.keyCode, let mask = modeKey.flagMask,
+               (event.flags.rawValue & mask) != 0 {
+                DispatchQueue.main.async { [weak self] in self?.handler?(.flipMode) }
+                return false
+            }
+
+            if let hit = recordKeys.first(where: { $0.isModifier && $0.keyCode == code }),
+               let flagMask = hit.flagMask {
+                let pressed = (event.flags.rawValue & flagMask) != 0
+                DispatchQueue.main.async { [weak self] in
+                    pressed ? self?.keyPressed(from: hit.id) : self?.keyReleased(from: hit.id)
+                }
+            }
             return false
         }
 
@@ -159,18 +191,6 @@ final class Hotkey {
             if holdActive {
                 DispatchQueue.main.async { [weak self] in self?.cancelAll() }
             }
-            return false
-        }
-
-        guard type == .flagsChanged,
-              current.isModifier,
-              code == current.keyCode,
-              let flagMask = current.flagMask
-        else { return false }
-
-        let pressed = (event.flags.rawValue & flagMask) != 0
-        DispatchQueue.main.async { [weak self] in
-            pressed ? self?.keyPressed() : self?.keyReleased()
         }
         return false
     }
@@ -185,19 +205,16 @@ final class Hotkey {
     /// сама превращает в «следующий трек» и присылает уже другой код.
     /// Остаётся удержание, ради которого всё и затевалось.
     private func handleMedia(_ event: CGEvent) -> Bool {
-        guard let media = option.mediaCode,
-              let ns = NSEvent(cgEvent: event),
-              ns.subtype.rawValue == 8
-        else { return false }
+        guard let ns = NSEvent(cgEvent: event), ns.subtype.rawValue == 8 else { return false }
 
         let data = ns.data1
         let code = Int((data & 0xFFFF_0000) >> 16)
-        guard code == media else { return false }
+        guard let hit = recordKeys.first(where: { $0.mediaCode == code }) else { return false }
 
         let flags = data & 0x0000_FFFF
         let pressed = ((flags & 0xFF00) >> 8) == 0x0A
         DispatchQueue.main.async { [weak self] in
-            pressed ? self?.keyPressed() : self?.keyReleased()
+            pressed ? self?.keyPressed(from: hit.id) : self?.keyReleased(from: hit.id)
         }
         return true
     }
@@ -208,14 +225,20 @@ final class Hotkey {
         toggleActive = false
         holdActive = false
         keyDownAt = nil
+        activeKeyID = nil
         handler?(.cancel)
     }
 
-    private func keyPressed() {
+    private func keyPressed(from id: String) {
+        // Чужой жест не перебиваем: одна запись за раз.
+        if let active = activeKeyID, active != id { return }
+        activeKeyID = id
+
         // Идёт запись «переключателем» — этот тап её завершает.
         if toggleActive {
             toggleActive = false
             keyDownAt = nil
+            activeKeyID = nil
             handler?(.toggleOff)
             return
         }
@@ -236,13 +259,15 @@ final class Hotkey {
         handler?(.startHold)
     }
 
-    private func keyReleased() {
+    private func keyReleased(from id: String) {
+        guard activeKeyID == id else { return }
         guard holdActive, let downAt = keyDownAt else { return }
         holdActive = false
         keyDownAt = nil
 
         let held = Date().timeIntervalSince(downAt)
         if held >= tapThreshold {
+            activeKeyID = nil
             handler?(.finishHold)
             return
         }
@@ -251,6 +276,7 @@ final class Hotkey {
         let work = DispatchWorkItem { [weak self] in
             guard let self else { return }
             self.pendingDiscard = nil
+            self.activeKeyID = nil
             self.handler?(.discard)
         }
         pendingDiscard = work

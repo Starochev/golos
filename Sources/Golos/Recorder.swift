@@ -29,12 +29,16 @@ final class Recorder {
         }
     }
 
+    /// Микрофон из настроек. Пусто — тот, что выбран в системе.
+    var preferredDevice = ""
+
     func start() throws {
         guard !isRunning else { return }
 
         lock.lock(); samples.removeAll(keepingCapacity: true); lock.unlock()
 
         let input = engine.inputNode
+        applyPreferredDevice(to: input)
         let inputFormat = input.inputFormat(forBus: 0)
 
         guard let conv = AVAudioConverter(from: inputFormat, to: target) else {
@@ -134,7 +138,13 @@ final class Recorder {
         // потому что приложение само играет сигнал в начале записи и
         // микрофон его слышит. По той же причине начало пропускаем.
         guard Recorder.hasSpeech(collected) else {
-            Log.write("в записи нет речи, не отправляю")
+            // Пишем замер, а не просто отказ: иначе не отличить «человек
+            // молчал» от «микрофон не тот и не слышит вовсе».
+            let seconds = Double(collected.count) / target.sampleRate
+            let peak = collected.map(abs).max() ?? 0
+            let loudness = Recorder.loudWindows(collected)
+            Log.write(String(format: "в записи нет речи, не отправляю: %.1f с, пик %.4f, громких окон %d, микрофон «%@»",
+                             seconds, peak, loudness, activeInputName()))
             return nil
         }
 
@@ -171,6 +181,48 @@ final class Recorder {
     /// Окно 100 мс, порог примерно −42 дБ: комнатная тишина держится ниже
     /// −55 дБ, речь идёт в районе −30 дБ, так что порог лежит с запасом
     /// между ними. Короткий сигнал старта даёт одно окно и не проходит.
+    /// Ставит выбранный микрофон на вход движка. Делать это надо до чтения
+    /// формата: иначе конвертер настроится на прежнее устройство.
+    private func applyPreferredDevice(to input: AVAudioInputNode) {
+        guard !preferredDevice.isEmpty else { return }
+        guard let id = AudioDevices.find(named: preferredDevice) else {
+            Log.write("микрофон «\(preferredDevice)» не найден, беру системный")
+            return
+        }
+        guard let unit = input.audioUnit else { return }
+        var device = id
+        let status = AudioUnitSetProperty(unit, kAudioOutputUnitProperty_CurrentDevice,
+                                          kAudioUnitScope_Global, 0, &device,
+                                          UInt32(MemoryLayout<AudioDeviceID>.size))
+        if status != noErr {
+            Log.write("микрофон «\(preferredDevice)» не встал: код \(status)")
+        }
+    }
+
+    /// Имя микрофона, который сейчас слушаем.
+    func activeInputName() -> String {
+        preferredDevice.isEmpty ? AudioDevices.defaultInputName() : preferredDevice
+    }
+
+    /// Имя микрофона, который система отдаёт по умолчанию. Нужно в журнале:
+    /// «звук не пишется» чаще всего означает, что слушается не то устройство.
+    /// Сколько стомиллисекундных окон содержат звук. Для диагностики.
+    static func loudWindows(_ samples: [Float]) -> Int {
+        let window = 1600
+        let skipStart = 3200
+        let threshold: Float = 0.008
+        guard samples.count > skipStart + window else { return 0 }
+        var loud = 0
+        var index = skipStart
+        while index + window <= samples.count {
+            var sum: Float = 0
+            for i in index..<(index + window) { sum += samples[i] * samples[i] }
+            if sqrt(sum / Float(window)) > threshold { loud += 1 }
+            index += window
+        }
+        return loud
+    }
+
     static func hasSpeech(_ samples: [Float]) -> Bool {
         let window = 1600                       // 100 мс при 16 кГц
         let skipStart = 3200                    // 200 мс на собственный сигнал
