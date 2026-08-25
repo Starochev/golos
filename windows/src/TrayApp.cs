@@ -142,6 +142,8 @@ public sealed class TrayApp : ApplicationContext
                 // Правки могли поменять словарь, микрофон и клавишу.
                 config = Config.Load();
                 hotkey?.SetOption(HotkeyOption.Named(config.Hotkey));
+                hotkey?.SetSecondOption(string.IsNullOrEmpty(config.SecondHotkey)
+                                        ? null : HotkeyOption.Named(config.SecondHotkey));
                 RefreshHint();
                 settingsForm = null;
             };
@@ -209,6 +211,7 @@ public sealed class TrayApp : ApplicationContext
     {
         hotkey = new Hotkey(HandleHotkey);
         hotkey.SetOption(HotkeyOption.Named(config.Hotkey));
+        hotkey.SetSecondOption(string.IsNullOrEmpty(config.SecondHotkey) ? null : HotkeyOption.Named(config.SecondHotkey));
         if (hotkey.Start()) Log.Write("горячая клавиша слушается");
         else SetState(State.Failed, "Не удалось перехватить клавиатуру");
     }

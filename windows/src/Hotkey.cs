@@ -26,13 +26,39 @@ public sealed class Hotkey : IDisposable
     private HotkeyOption option = HotkeyOption.Fallback;
 
     /// <summary>
+    /// Вторая клавиша записи. Работает наравне с основной: до одной не всегда
+    /// дотянуться, а менять настройку ради каждого случая незачем.
+    /// </summary>
+    private HotkeyOption? secondOption;
+
+    /// <summary>Обе клавиши записи.</summary>
+    private IEnumerable<HotkeyOption> RecordKeys
+    {
+        get
+        {
+            yield return option;
+            if (secondOption != null) yield return secondOption;
+        }
+    }
+
+    /// <summary>Какая клавиша начала текущий жест. Вторая в чужой не лезет.</summary>
+    private string? activeKeyId;
+
+    /// <summary>
     /// Клавиша, которая во время записи переключает «текст или звук».
     /// Ничего не запускает и не останавливает, поэтому настройки под неё нет.
-    /// Если запись и так на правом Ctrl, меняемся местами.
+    /// Берём первый свободный модификатор: занятый под запись не годится.
     /// </summary>
-    private HotkeyOption ModeKey => option.Id == "rightControl"
-        ? HotkeyOption.Named("rightOption")
-        : HotkeyOption.Named("rightControl");
+    private HotkeyOption ModeKey
+    {
+        get
+        {
+            var taken = RecordKeys.Select(k => k.Id).ToHashSet();
+            foreach (var id in new[] { "rightControl", "rightOption", "rightCommand", "rightShift" })
+                if (!taken.Contains(id)) return HotkeyOption.Named(id);
+            return HotkeyOption.Named("rightControl");
+        }
+    }
 
     private bool modeKeyDown;
 
@@ -41,7 +67,18 @@ public sealed class Hotkey : IDisposable
         if (newOption.Id == option.Id) return;
         Reset();
         option = newOption;
+        if (secondOption?.Id == newOption.Id) secondOption = null;
         Log.Write($"клавиша записи: {newOption.Title}");
+    }
+
+    /// <summary>Вторая клавиша. null — выключена. Совпасть с основной не может.</summary>
+    public void SetSecondOption(HotkeyOption? newOption)
+    {
+        var resolved = newOption?.Id == option.Id ? null : newOption;
+        if (resolved?.Id == secondOption?.Id) return;
+        Reset();
+        secondOption = resolved;
+        Log.Write($"вторая клавиша записи: {resolved?.Title ?? "выключена"}");
     }
 
     /// <summary>Короче этого удержание считается тапом, а не рацией.</summary>
@@ -83,6 +120,7 @@ public sealed class Hotkey : IDisposable
         holdActive = false;
         keyDownAt = null;
         modeKeyDown = false;
+        activeKeyId = null;
     }
 
     private IntPtr HookProc(int nCode, IntPtr wParam, IntPtr lParam)
@@ -95,18 +133,18 @@ public sealed class Hotkey : IDisposable
         var down = message is WM_KEYDOWN or WM_SYSKEYDOWN;
         var up = message is WM_KEYUP or WM_SYSKEYUP;
 
-        var current = option;
-        if (info.vkCode == (uint)current.VirtualKey)
+        var hit = RecordKeys.FirstOrDefault(k => info.vkCode == (uint)k.VirtualKey);
+        if (hit != null)
         {
             // Автоповтор при удержании шлёт keydown пачками — KeyPressed
             // отсекает их сам.
-            if (down) KeyPressed();
-            else if (up) KeyReleased();
+            if (down) KeyPressed(hit.Id);
+            else if (up) KeyReleased(hit.Id);
 
             // Модификаторы проглатываем: иначе одиночный Alt или Windows
             // отдаст фокус меню. Обычные клавиши вроде F13 пропускаем —
             // мешать они всё равно никому не будут.
-            return current.IsModifier ? (IntPtr)1 : CallNextHookEx(hook, nCode, wParam, lParam);
+            return hit.IsModifier ? (IntPtr)1 : CallNextHookEx(hook, nCode, wParam, lParam);
         }
 
         // Смена режима: только пока идёт запись, только на нажатие.
@@ -136,8 +174,12 @@ public sealed class Hotkey : IDisposable
         return CallNextHookEx(hook, nCode, wParam, lParam);
     }
 
-    private void KeyPressed()
+    private void KeyPressed(string id)
     {
+        // Чужой жест не перебиваем: одна запись за раз.
+        if (activeKeyId != null && activeKeyId != id) return;
+        activeKeyId = id;
+
         // Автоповтор при удержании шлёт keydown пачками — считаем только первый.
         if (holdActive) return;
 
@@ -145,6 +187,7 @@ public sealed class Hotkey : IDisposable
         {
             toggleActive = false;
             keyDownAt = null;
+            activeKeyId = null;
             handler(Event.ToggleOff);
             return;
         }
@@ -165,8 +208,9 @@ public sealed class Hotkey : IDisposable
         handler(Event.StartHold);
     }
 
-    private void KeyReleased()
+    private void KeyReleased(string id)
     {
+        if (activeKeyId != id) return;
         if (!holdActive || keyDownAt == null) return;
         holdActive = false;
         var held = DateTime.UtcNow - keyDownAt.Value;
@@ -174,6 +218,7 @@ public sealed class Hotkey : IDisposable
 
         if (held >= TapThreshold)
         {
+            activeKeyId = null;
             handler(Event.FinishHold);
             return;
         }
@@ -183,6 +228,7 @@ public sealed class Hotkey : IDisposable
         discardTimer.Tick += (_, _) =>
         {
             CancelDiscardTimer();
+            activeKeyId = null;
             handler(Event.Discard);
         };
         discardTimer.Start();
@@ -195,6 +241,7 @@ public sealed class Hotkey : IDisposable
         holdActive = false;
         keyDownAt = null;
         modeKeyDown = false;
+        activeKeyId = null;
         handler(Event.Cancel);
     }
 

@@ -100,15 +100,46 @@ public sealed class SettingsForm : Form
         foreach (var option in HotkeyOption.All) hotkeyBox.Items.Add(option.Title);
         hotkeyBox.SelectedIndex = Math.Max(0, Array.FindIndex(HotkeyOption.All, o => o.Id == config.Hotkey));
         var hotkeyNote = Hint(HotkeyOption.Named(config.Hotkey).Note);
+        var secondBox = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 260 };
+        // Первым пунктом «выключено», дальше всё, кроме основной клавиши.
+        var secondIds = new List<string>();
+        void FillSecond()
+        {
+            secondBox.Items.Clear();
+            secondIds.Clear();
+            secondBox.Items.Add("Выключено");
+            secondIds.Add("");
+            foreach (var option in HotkeyOption.All.Where(o => o.Id != config.Hotkey))
+            {
+                secondBox.Items.Add(option.Title);
+                secondIds.Add(option.Id);
+            }
+            secondBox.SelectedIndex = Math.Max(0, secondIds.IndexOf(config.SecondHotkey));
+        }
+
+
         hotkeyBox.SelectedIndexChanged += (_, _) =>
         {
             var chosen = HotkeyOption.All[hotkeyBox.SelectedIndex];
             config.Hotkey = chosen.Id;
             hotkeyNote.Text = chosen.Note;
+            if (config.SecondHotkey == chosen.Id) config.SecondHotkey = "";
             Save();
+            FillSecond();
         };
         layout.Controls.Add(hotkeyBox);
         layout.Controls.Add(hotkeyNote);
+        layout.Controls.Add(Header("Вторая клавиша"));
+        FillSecond();
+        secondBox.SelectedIndexChanged += (_, _) =>
+        {
+            if (secondBox.SelectedIndex < 0) return;
+            config.SecondHotkey = secondIds[secondBox.SelectedIndex];
+            Save();
+        };
+        layout.Controls.Add(secondBox);
+        layout.Controls.Add(Hint("Работает наравне с основной. Удобно, когда до основной не всегда дотянуться, а лезть в настройки ради этого не хочется. Применяется после закрытия окна."));
+
         layout.Controls.Add(Hint("Список закрыт намеренно: обычную букву назначить нельзя, иначе каждое её нажатие уходило бы в диктовку. Применяется после закрытия окна."));
 
         layout.Controls.Add(Header("Окошко с волной"));

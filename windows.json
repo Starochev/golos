@@ -1,6 +1,6 @@
 {
-  "version": "0.3.0",
-  "url": "https://github.com/Starochev/golos/releases/download/win-v0.3.0/Golos.exe",
-  "sha256": "A0CAB52354570CDCA03941130107B698D63CD86B8DBEDA3E88A3D5D9DB97C5E5",
-  "notes": "Кандидаты в словарь, голосовые сообщения переключателем в окошке записи, пустой словарь при установке."
+  "version": "0.3.1",
+  "url": "https://github.com/Starochev/golos/releases/download/win-v0.3.1/Golos.exe",
+  "sha256": "9F6E643157B19EAE83EC59F69FDB062612F841BFDAB866D84F144430022D7E9A",
+  "notes": "Вторая клавиша записи: работает наравне с основной."
 }

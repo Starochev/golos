@@ -40,6 +40,12 @@ public sealed class Config
     /// </summary>
     public string EnginePath { get; set; } = "";
     /// <summary>
+    /// Вторая клавиша записи: идентификатор из HotkeyOption.All.
+    /// Пусто — выключена. Нужна, чтобы две удобные клавиши работали
+    /// одновременно, а не через переключение в настройках.
+    /// </summary>
+    public string SecondHotkey { get; set; } = "";
+    /// <summary>
     /// Что делать со знаком в конце распознанной фразы:
     /// keep — оставить как распознано, period — убрать точку,
     /// any — убрать любой знак.
