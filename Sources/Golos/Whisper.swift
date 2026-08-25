@@ -331,19 +331,32 @@ final class Whisper {
         }
     }
 
-    /// Сервер режет ответ по сегментам и вставляет переводы строк там, где в речи
-    /// их не было; плюс whisper любит помечать тишину служебными скобками.
+    /// Сервер кладёт каждый отрезок на свою строку, и переводы строк надо убрать:
+    /// в речи их не было. Но менять их на пробел не глядя нельзя. Whisper рвёт
+    /// слова пополам, и тогда «сотруд» и «ников» приходят разными строками:
+    /// отрезок с ведущим пробелом начинает новое слово, отрезок без пробела
+    /// продолжает предыдущее. Раньше строки обрезались до склейки, и признак
+    /// терялся — каждая третья диктовка приезжала с разорванным словом.
+    ///
+    /// Заодно это чинит знаки препинания: «менеджеров» и «?» тоже приходят
+    /// отдельными строками, и пробел перед вопросительным знаком лишний.
     static func clean(_ raw: String) -> String {
         var text = raw
         for marker in ["[BLANK_AUDIO]", "[ Тишина ]", "(тишина)", "[Music]", "[音楽]"] {
             text = text.replacingOccurrences(of: marker, with: "")
         }
-        let joined = text
-            .split(whereSeparator: \.isNewline)
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
-            .joined(separator: " ")
-        return joined
+
+        var result = ""
+        for line in text.split(whereSeparator: \.isNewline) {
+            let continuesWord = !(line.first == " " || line.first == "\t")
+            let piece = line.trimmingCharacters(in: .whitespaces)
+            if piece.isEmpty { continue }
+            if result.isEmpty { result = piece }
+            else if continuesWord { result += piece }
+            else { result += " " + piece }
+        }
+
+        return result
             .replacingOccurrences(of: "  ", with: " ")
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
