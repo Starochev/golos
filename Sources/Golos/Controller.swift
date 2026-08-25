@@ -314,6 +314,11 @@ final class Controller {
         guard !discard, let wav else { return }
 
         play(.stop)
+        exportVoice(wav: wav)
+    }
+
+    /// Пакует запись в голосовое и кладёт в буфер файлом.
+    private func exportVoice(wav: Data) {
         VoiceMessage.copyToClipboard(wav: wav) { [weak self] result in
             switch result {
             case .success(let url):
@@ -379,6 +384,16 @@ final class Controller {
             // Слишком короткий фрагмент — молча возвращаемся в покой.
             hud.hide()
             state = .idle
+            return
+        }
+
+        // Переключатель в окошке решает, чем отдать надиктованное.
+        // Звуком — значит распознавать нечего, сразу пакуем и кладём в буфер.
+        if config.showHUD, hud.mode == .audio {
+            hud.hide()
+            state = .idle
+            play(.stop)
+            exportVoice(wav: wav)
             return
         }
 

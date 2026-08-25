@@ -3,12 +3,18 @@ import SwiftUI
 
 /// Всплывающее окошко с живой волной во время записи.
 ///
-/// Панель принципиально не активирующая и не принимающая мышь: приложение
-/// вставляет текст в то окно, которое было активным, и любая кража фокуса
-/// сломала бы главный сценарий.
+/// Панель принципиально не активирующая: приложение вставляет текст в то окно,
+/// которое было активным, и кража фокуса сломала бы главный сценарий. Мышь она
+/// при этом принимает — переключателем выбирают, чем отдать надиктованное.
+/// Одно другому не мешает: nonactivatingPanel не поднимает приложение,
+/// а ключевым окно не становится, потому что borderless-панель на это
+/// не претендует.
 @MainActor
 final class RecorderHUD {
     enum Phase { case recording, transcribing }
+
+    /// Чем отдать запись: текстом в активное поле или звуком в буфер.
+    enum Mode { case text, audio }
 
     private var panel: NSPanel?
     private let model = HUDModel()
@@ -18,11 +24,16 @@ final class RecorderHUD {
     /// отложенный orderOut убирал бы окно, показанное уже для новой записи.
     private var generation = 0
 
+    /// Что выбрано переключателем. Без окошка выбирать нечем, всегда текст.
+    var mode: Mode { model.mode }
+
     /// Показать окошко и начать опрашивать громкость.
     func show(color: NSColor, levelSource: @escaping () -> Float) {
         generation += 1
         self.levelSource = levelSource
         model.color = Color(color)
+        model.onPill = RecorderHUD.contrastColor(for: color)
+        model.mode = .text
         model.reset()
         model.phase = .recording
         ensurePanel()
@@ -84,7 +95,7 @@ final class RecorderHUD {
     private func ensurePanel() {
         guard panel == nil else { return }
         let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 260, height: 70),
+            contentRect: NSRect(x: 0, y: 0, width: 260, height: 108),
             // nonactivatingPanel — то самое, что не даёт увести фокус.
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
@@ -94,11 +105,22 @@ final class RecorderHUD {
         panel.backgroundColor = .clear
         panel.hasShadow = false
         panel.level = .statusBar
-        panel.ignoresMouseEvents = true
+        // Мышь нужна переключателю. Фокус при этом не уезжает: панель
+        // не активирующая и ключевой не становится.
+        panel.ignoresMouseEvents = false
+        panel.becomesKeyOnlyIfNeeded = true
         panel.hidesOnDeactivate = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
-        panel.contentView = NSHostingView(rootView: HUDView(model: model))
+        panel.contentView = ClickableHostingView(rootView: HUDView(model: model))
         self.panel = panel
+    }
+
+    /// Белую волну не подписать белым по ней же. Считаем яркость и берём
+    /// тот цвет надписи, который на этой пилюле будет видно.
+    private static func contrastColor(for color: NSColor) -> Color {
+        guard let rgb = color.usingColorSpace(.sRGB) else { return .white }
+        let luminance = 0.299 * rgb.redComponent + 0.587 * rgb.greenComponent + 0.114 * rgb.blueComponent
+        return luminance > 0.6 ? Color.black.opacity(0.85) : Color.white
     }
 
     /// Снизу по центру того экрана, где сейчас курсор.
@@ -114,11 +136,26 @@ final class RecorderHUD {
 
 }
 
+/// Окно не может стать ключевым, и по умолчанию первый щелчок по такому
+/// окну съедается системой. Переключателю это не годится: щелчок у него
+/// всегда первый, второго человек делать не станет.
+private final class ClickableHostingView<Content: View>: NSHostingView<Content> {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    @MainActor required init(rootView: Content) { super.init(rootView: rootView) }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError() }
+}
+
 @MainActor
 private final class HUDModel: ObservableObject {
     @Published var levels: [CGFloat]
     @Published var phase: RecorderHUD.Phase = .recording
     @Published var color: Color = .white
+    /// Цвет надписи на пилюле переключателя, подобранный под цвет волны.
+    @Published var onPill: Color = .white
+    @Published var mode: RecorderHUD.Mode = .text
     /// Управляет появлением и уходом: содержимое растёт из центра.
     @Published var visible: Bool = false
 
@@ -162,12 +199,15 @@ private struct HUDView: View {
 
             switch model.phase {
             case .recording:
-                waveform
+                VStack(spacing: 9) {
+                    waveform
+                    modeSwitch
+                }
             case .transcribing:
                 transcribing
             }
         }
-        .frame(width: 260, height: 70)
+        .frame(width: 260, height: 108)
         .scaleEffect(model.visible ? 1 : 0.86)
         .opacity(model.visible ? 1 : 0)
         .animation(.easeOut(duration: 0.28), value: model.visible)
@@ -178,12 +218,45 @@ private struct HUDView: View {
             ForEach(Array(model.levels.enumerated()), id: \.offset) { _, level in
                 Capsule()
                     .fill(model.color.opacity(0.95))
-                    .frame(width: 4, height: max(4, level * 44))
+                    .frame(width: 4, height: max(4, level * 40))
                     .shadow(color: model.color.opacity(0.6), radius: 4)
             }
         }
-        .frame(height: 46)
+        .frame(height: 42)
         .animation(.linear(duration: 0.05), value: model.levels)
+    }
+
+    /// Переключатель «Текст или Звук». Пилюля переезжает с пружиной,
+    /// чтобы движение читалось как переключение, а не как перерисовка.
+    private var modeSwitch: some View {
+        ZStack(alignment: .leading) {
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .fill(Color.white.opacity(0.09))
+
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(model.color.opacity(0.92))
+                .shadow(color: model.color.opacity(0.55), radius: 5)
+                .frame(width: 74, height: 22)
+                .offset(x: model.mode == .text ? 2 : 76)
+                .animation(.spring(response: 0.3, dampingFraction: 0.78), value: model.mode)
+
+            HStack(spacing: 0) {
+                label("Текст", .text)
+                label("Звук", .audio)
+            }
+        }
+        .frame(width: 152, height: 26)
+    }
+
+    private func label(_ title: String, _ mode: RecorderHUD.Mode) -> some View {
+        let chosen = model.mode == mode
+        return Text(title)
+            .font(.system(size: 11, weight: chosen ? .semibold : .regular))
+            .foregroundStyle(chosen ? model.onPill : Color.white.opacity(0.5))
+            .frame(width: 76, height: 26)
+            .contentShape(Rectangle())
+            .onTapGesture { model.mode = mode }
+            .animation(.easeOut(duration: 0.2), value: model.mode)
     }
 
     private var transcribing: some View {
