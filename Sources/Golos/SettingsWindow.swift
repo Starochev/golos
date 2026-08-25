@@ -739,7 +739,7 @@ private struct AboutTab: View {
                 shortcut("Держать \(HotkeyOption.named(Config.load().hotkey).title)", "запись, пока держишь")
                 shortcut("Двойной тап", "запись до следующего тапа")
                 shortcut("Escape во время записи", "отменить без вставки")
-                shortcut("Переключатель в окошке", "отдать записанное текстом или звуком")
+                shortcut("Правый ⌘ во время записи", "переключить: текст или звук")
             }
 
             Divider()

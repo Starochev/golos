@@ -268,6 +268,9 @@ final class Controller {
             endRecording(discard: false)
         case .discard, .cancel:
             endRecording(discard: true)
+        case .flipMode:
+            hud.flipMode()
+            Log.write("режим записи: \(hud.mode == .audio ? "звук" : "текст")")
         }
     }
 

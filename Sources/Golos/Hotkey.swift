@@ -12,6 +12,7 @@ final class Hotkey {
         case toggleOff      // ещё один тап — распознать
         case cancel         // Escape
         case discard        // одиночный короткий тап — записанное выбросить
+        case flipMode       // вторая клавиша во время записи — сменить режим
     }
 
 
@@ -32,6 +33,15 @@ final class Hotkey {
     /// Какая клавиша слушается. Меняется на лету — перезапускать перехват
     /// ради этого не нужно.
     private var option: HotkeyOption = .fallback
+
+    /// Клавиша, которая во время записи переключает «текст или звук».
+    /// Ничего не запускает и не останавливает, поэтому и настройки под неё нет:
+    /// правый ⌘ рядом с правым ⌥, дотягивается большим пальцем той же руки.
+    /// Если запись и так на правом ⌘, меняемся местами.
+    private var modeKey: HotkeyOption {
+        option.id == "rightCommand" ? HotkeyOption.named("rightOption")
+                                    : HotkeyOption.named("rightCommand")
+    }
 
 
     func setOption(_ newOption: HotkeyOption) {
@@ -117,6 +127,14 @@ final class Hotkey {
             } else if type == .keyUp {
                 DispatchQueue.main.async { [weak self] in self?.keyReleased() }
             }
+            return
+        }
+
+        // Смена режима: только пока идёт запись, только на нажатие.
+        if type == .flagsChanged, holdActive || toggleActive,
+           code == modeKey.keyCode, let mask = modeKey.flagMask,
+           (event.flags.rawValue & mask) != 0 {
+            DispatchQueue.main.async { [weak self] in self?.handler?(.flipMode) }
             return
         }
 

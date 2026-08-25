@@ -27,6 +27,14 @@ final class RecorderHUD {
     /// Что выбрано переключателем. Без окошка выбирать нечем, всегда текст.
     var mode: Mode { model.mode }
 
+    /// Перекинуть переключатель с клавиатуры. Работает, только пока окошко
+    /// на экране: без него переключателя не видно, и менять режим вслепую
+    /// значит однажды отправить звук вместо текста.
+    func flipMode() {
+        guard panel != nil, model.visible, model.phase == .recording else { return }
+        model.mode = model.mode == .text ? .audio : .text
+    }
+
     /// Показать окошко и начать опрашивать громкость.
     func show(color: NSColor, levelSource: @escaping () -> Float) {
         generation += 1
