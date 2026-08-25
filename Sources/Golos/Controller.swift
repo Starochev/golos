@@ -434,9 +434,10 @@ final class Controller {
     /// Всё распознано — вставляем и прибираем состояние.
     private func finish(text raw: String, wav: Data, generation: Int) {
         let current = generation == recordingGeneration
-        let text = config.applyReplacements(
-            to: Hallucination.strippingTrailingInvention(
-                Hallucination.collapsingTrailingRepeats(raw)))
+        let text = config.applyingFinalPunctuation(
+            to: config.applyReplacements(
+                to: Hallucination.strippingTrailingInvention(
+                    Hallucination.collapsingTrailingRepeats(raw))))
         Log.write("распознано: \(text)")
 
         guard !text.isEmpty else {

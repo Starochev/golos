@@ -42,6 +42,10 @@ struct Config: Codable {
     /// Разбор идёт фоном, уже после вставки текста: он стоит ещё одного прохода
     /// распознавания, и ждать его на каждой фразе незачем.
     var collectCandidates: Bool = true
+    /// Что делать со знаком в конце распознанной фразы:
+    /// "keep" — оставить как распознано, "period" — убрать точку,
+    /// "any" — убрать любой знак.
+    var finalPunctuation: String = "keep"
     var keepHistory: Bool = true
     /// Через сколько часов удалять записи. 0 — не удалять никогда.
     /// По умолчанию час: история нужна, чтобы разобрать свежую ошибку
@@ -107,6 +111,7 @@ struct Config: Codable {
             ?? fallback.fileOutputFolder
         keepConvertedAudio = try c.decodeIfPresent(Bool.self, forKey: .keepConvertedAudio)
             ?? fallback.keepConvertedAudio
+        finalPunctuation = try c.decodeIfPresent(String.self, forKey: .finalPunctuation) ?? fallback.finalPunctuation
         collectCandidates = try c.decodeIfPresent(Bool.self, forKey: .collectCandidates) ?? fallback.collectCandidates
         keepHistory = try c.decodeIfPresent(Bool.self, forKey: .keepHistory) ?? fallback.keepHistory
         historyRetentionHours = try c.decodeIfPresent(Int.self, forKey: .historyRetentionHours)
@@ -144,16 +149,9 @@ struct Config: Codable {
         var cfg = Config()
         cfg.modelPath = defaultModelPath() ?? ""
         cfg.vadModelPath = defaultVadPath() ?? ""
-        cfg.vocabulary = [
-            "Claude", "Cursor", "Next.js", "React", "TypeScript", "Prisma",
-            "Postgres", "Docker", "Vercel", "GitHub", "pull request", "merge",
-            "commit", "deploy", "environment variables", "endpoint", "API",
-            "frontend", "backend", "фича", "баг", "билд", "релиз"
-        ]
-        cfg.replacements = [
-            .init(from: "верселе", to: "Vercel"),
-            .init(from: "клод", to: "Claude")
-        ]
+        // Словарь и замены остаются пустыми намеренно. У каждого свои слова,
+        // а чужой список только съедает лимит подсказки: место в нём считанное,
+        // и занимать его словами, которые человек не произносит, вредно.
         cfg.save()
         return cfg
     }
@@ -195,6 +193,27 @@ struct Config: Codable {
     /// 224 токена — это примерно 700 символов латиницы вперемешку с кириллицей.
     /// Берём с запасом: кириллица дороже в токенах.
     static let promptCharacterBudget = 600
+
+    /// Срезает знак в конце фразы, если так просили в настройках.
+    ///
+    /// Знаки препинания ставит сама модель, отдельной ручки у неё нет.
+    /// Единственное, что можно сделать снаружи, — убрать лишнее с конца.
+    /// Многоточие не трогаем: откусить от него одну точку хуже, чем оставить.
+    func applyingFinalPunctuation(to text: String) -> String {
+        switch finalPunctuation {
+        case "period":
+            guard text.hasSuffix("."), !text.hasSuffix("..") else { return text }
+            return String(text.dropLast())
+        case "any":
+            var result = text
+            while let last = result.last, ".,!?;:".contains(last) {
+                result = String(result.dropLast())
+            }
+            return result.isEmpty ? text : result
+        default:
+            return text
+        }
+    }
 
     /// Применяет пользовательские замены к распознанному тексту.
     func applyReplacements(to text: String) -> String {

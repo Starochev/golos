@@ -209,6 +209,16 @@ private struct GeneralTab: View {
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+
+                Picker("Знак в конце фразы", selection: $store.config.finalPunctuation) {
+                    Text("Как распознано").tag("keep")
+                    Text("Убирать точку").tag("period")
+                    Text("Убирать любой знак").tag("any")
+                }
+                Text("Знаки препинания расставляет сама модель, по интонации и смыслу. Отдельной ручки у неё нет, и вопросительный знак она иногда пропускает. Убрать лишнее с конца можно, доставить нужное — нет. На расшифровку файлов не влияет.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             } header: {
                 Text("Вставка").font(.system(size: 12, weight: .semibold))
             }
