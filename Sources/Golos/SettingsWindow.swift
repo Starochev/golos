@@ -241,6 +241,21 @@ private struct GeneralTab: View {
             }
 
             Section {
+                Picker("Клавиша голосового", selection: $store.config.voiceHotkey) {
+                    Text("Выключено").tag("")
+                    ForEach(HotkeyOption.all.filter { $0.id != store.config.hotkey }) { option in
+                        Text(option.title).tag(option.id)
+                    }
+                }
+                Text("Отдельная клавиша для голосового сообщения. Держишь, говоришь, отпускаешь — запись сжимается и ложится в буфер файлом, вставляй в чат обычным Cmd+V. Распознавание при этом не запускается: отправляется звук, а не текст.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            } header: {
+                Text("Голосовое сообщение").font(.system(size: 12, weight: .semibold))
+            }
+
+            Section {
                 Picker("Язык речи", selection: $store.config.language) {
                     Text("Русский").tag("ru")
                     Text("Английский").tag("en")
@@ -738,6 +753,10 @@ private struct AboutTab: View {
                 shortcut("Держать \(HotkeyOption.named(Config.load().hotkey).title)", "запись, пока держишь")
                 shortcut("Двойной тап", "запись до следующего тапа")
                 shortcut("Escape во время записи", "отменить без вставки")
+                if !Config.load().voiceHotkey.isEmpty {
+                    shortcut("Держать \(HotkeyOption.named(Config.load().voiceHotkey).title)",
+                             "голосовое сообщение в буфер")
+                }
             }
 
             Divider()
@@ -750,6 +769,21 @@ private struct AboutTab: View {
                     NSWorkspace.shared.open(dir)
                 }
                 Button("Журнал") { NSWorkspace.shared.open(Log.fileURL) }
+            }
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Разработчик").font(.system(size: 12, weight: .semibold))
+                Text("Станислав Рочев").font(.system(size: 12))
+                HStack(spacing: 12) {
+                    Link("Телеграм", destination: URL(string: "https://t.me/starochev")!)
+                    Link("Instagram", destination: URL(string: "https://instagram.com/starochev")!)
+                }
+                .font(.system(size: 11))
+                Text("Пиши, если что-то не работает или чего-то не хватает.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
             }
 
             Spacer()

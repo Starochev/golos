@@ -50,8 +50,32 @@ CONFIGURE=(
     --enable-parser=opus,vorbis,aac,aac_latm,mpegaudio,flac,ac3
     --enable-protocol=file,pipe
     --enable-filter=aresample,aformat,anull,atrim
-    --enable-muxer=wav --enable-encoder=pcm_s16le
+    --enable-muxer=wav,ogg --enable-encoder=pcm_s16le
 )
+
+# Кодировщик opus нужен для голосовых сообщений: ogg с opus это то, что
+# мессенджеры показывают голосовым, а не файлом. Библиотеку прилинковываем
+# статически, иначе на чужой машине приложение не запустится.
+OPUS_LIB="/opt/homebrew/opt/opus/lib/libopus.a"
+OPUS_INC="/opt/homebrew/opt/opus/include"
+if [ -f "$OPUS_LIB" ] && command -v pkg-config >/dev/null; then
+    # Своя папка с одним только .a: иначе линковщик возьмёт dylib.
+    OPUS_STATIC="$WORK/opus-static"
+    mkdir -p "$OPUS_STATIC"
+    # Файл из Homebrew только для чтения, поверх такого cp не ложится.
+    rm -f "$OPUS_STATIC/libopus.a"
+    cp "$OPUS_LIB" "$OPUS_STATIC/libopus.a"
+    # pkg-config должен видеть opus.pc, иначе configure отказывается от libopus.
+    export PKG_CONFIG_PATH="/opt/homebrew/opt/opus/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
+    CONFIGURE+=(
+        --enable-libopus --enable-encoder=libopus
+        --extra-cflags="-I$OPUS_INC"
+        --extra-ldflags="-L$OPUS_STATIC"
+    )
+else
+    echo "Нет opus или pkg-config: голосовые сообщения собраны не будут." >&2
+    echo "Лечится: brew install opus pkgconf" >&2
+fi
 
 if $WINDOWS; then
     command -v x86_64-w64-mingw32-gcc >/dev/null \

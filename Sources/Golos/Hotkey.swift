@@ -14,6 +14,14 @@ final class Hotkey {
         case discard        // одиночный короткий тап — записанное выбросить
     }
 
+    /// Вторая клавиша: голосовое сообщение. Жестов у неё нет, только
+    /// удержание — распознавать нечего, файл готов сразу после отпускания.
+    enum VoiceEvent {
+        case start
+        case finish
+        case cancel
+    }
+
     /// Короче этого удержание считается тапом, а не рацией.
     private let tapThreshold: TimeInterval = 0.4
     /// Окно, внутри которого второй тап образует двойной.
@@ -32,11 +40,32 @@ final class Hotkey {
     /// ради этого не нужно.
     private var option: HotkeyOption = .fallback
 
+    /// Клавиша голосового сообщения. nil — функция выключена.
+    private var voiceOption: HotkeyOption?
+    private var voiceHandler: ((VoiceEvent) -> Void)?
+    private var voiceActive = false
+    private var voiceDownAt: Date?
+
     func setOption(_ newOption: HotkeyOption) {
         guard newOption.id != option.id else { return }
         reset()
         option = newOption
         Log.write("клавиша записи: \(newOption.title)")
+    }
+
+    /// Одну клавишу на два дела не повесить: если совпала с клавишей записи,
+    /// голосовое молча выключаем, диктовка важнее.
+    func setVoiceOption(_ newOption: HotkeyOption?) {
+        let resolved = (newOption?.id == option.id) ? nil : newOption
+        guard resolved?.id != voiceOption?.id else { return }
+        voiceActive = false
+        voiceDownAt = nil
+        voiceOption = resolved
+        Log.write("клавиша голосового: \(resolved?.title ?? "выключена")")
+    }
+
+    func onVoice(_ handler: @escaping (VoiceEvent) -> Void) {
+        voiceHandler = handler
     }
 
     /// Не запустится без разрешения «Универсальный доступ».
@@ -92,6 +121,8 @@ final class Hotkey {
         toggleActive = false
         holdActive = false
         keyDownAt = nil
+        voiceActive = false
+        voiceDownAt = nil
     }
 
     private func handle(type: CGEventType, event: CGEvent) {
@@ -103,6 +134,23 @@ final class Hotkey {
 
         let code = event.getIntegerValueField(.keyboardEventKeycode)
         let current = option
+
+        if let voice = voiceOption, code == voice.keyCode {
+            if let flagMask = voice.flagMask {
+                if type == .flagsChanged {
+                    let pressed = (event.flags.rawValue & flagMask) != 0
+                    DispatchQueue.main.async { [weak self] in
+                        pressed ? self?.voicePressed() : self?.voiceReleased()
+                    }
+                }
+            } else if type == .keyDown {
+                let repeated = event.getIntegerValueField(.keyboardEventAutorepeat) != 0
+                if !repeated { DispatchQueue.main.async { [weak self] in self?.voicePressed() } }
+            } else if type == .keyUp {
+                DispatchQueue.main.async { [weak self] in self?.voiceReleased() }
+            }
+            return
+        }
 
         // Обычная клавиша вроде F13 — приходит нажатиями, а не флагами.
         if !current.isModifier, code == current.keyCode {
@@ -117,6 +165,10 @@ final class Hotkey {
         }
 
         if type == .keyDown {
+            if code == Int64(kVK_Escape), voiceActive {
+                DispatchQueue.main.async { [weak self] in self?.cancelVoice() }
+                return
+            }
             if code == Int64(kVK_Escape), toggleActive || holdActive {
                 DispatchQueue.main.async { [weak self] in self?.cancelAll() }
                 return
@@ -127,6 +179,9 @@ final class Hotkey {
             // там печатать во время записи может быть намеренно.
             if holdActive {
                 DispatchQueue.main.async { [weak self] in self?.cancelAll() }
+            }
+            if voiceActive {
+                DispatchQueue.main.async { [weak self] in self?.cancelVoice() }
             }
             return
         }
@@ -150,6 +205,29 @@ final class Hotkey {
         holdActive = false
         keyDownAt = nil
         handler?(.cancel)
+    }
+
+    private func voicePressed() {
+        guard !voiceActive else { return }
+        voiceActive = true
+        voiceDownAt = Date()
+        voiceHandler?(.start)
+    }
+
+    private func voiceReleased() {
+        guard voiceActive, let downAt = voiceDownAt else { return }
+        voiceActive = false
+        voiceDownAt = nil
+        // Случайный тычок не должен превращаться в сообщение на полсекунды.
+        let held = Date().timeIntervalSince(downAt)
+        voiceHandler?(held >= tapThreshold ? .finish : .cancel)
+    }
+
+    private func cancelVoice() {
+        guard voiceActive else { return }
+        voiceActive = false
+        voiceDownAt = nil
+        voiceHandler?(.cancel)
     }
 
     private func keyPressed() {

@@ -42,6 +42,9 @@ struct Config: Codable {
     /// Разбор идёт фоном, уже после вставки текста: он стоит ещё одного прохода
     /// распознавания, и ждать его на каждой фразе незачем.
     var collectCandidates: Bool = true
+    /// Клавиша голосового сообщения: идентификатор из HotkeyOption.all.
+    /// Пусто — функция выключена, лишнюю клавишу никто не отнимает.
+    var voiceHotkey: String = ""
     /// Что делать со знаком в конце распознанной фразы:
     /// "keep" — оставить как распознано, "period" — убрать точку,
     /// "any" — убрать любой знак.
@@ -111,6 +114,7 @@ struct Config: Codable {
             ?? fallback.fileOutputFolder
         keepConvertedAudio = try c.decodeIfPresent(Bool.self, forKey: .keepConvertedAudio)
             ?? fallback.keepConvertedAudio
+        voiceHotkey = try c.decodeIfPresent(String.self, forKey: .voiceHotkey) ?? fallback.voiceHotkey
         finalPunctuation = try c.decodeIfPresent(String.self, forKey: .finalPunctuation) ?? fallback.finalPunctuation
         collectCandidates = try c.decodeIfPresent(Bool.self, forKey: .collectCandidates) ?? fallback.collectCandidates
         keepHistory = try c.decodeIfPresent(Bool.self, forKey: .keepHistory) ?? fallback.keepHistory
