@@ -14,9 +14,23 @@ struct HotkeyOption: Identifiable, Hashable {
     /// Бит в маске флагов — только у модификаторов. У обычных клавиш nil:
     /// они приходят не через flagsChanged, а через keyDown и keyUp.
     let flagMask: UInt64?
+    /// Код кнопки пульта. У кнопок на проводе гарнитуры и у медиаклавиш
+    /// клавиатуры своя дорога: системное событие типа 14, а не клавиатурное.
+    let mediaCode: Int?
     let note: String
 
     var isModifier: Bool { flagMask != nil }
+    var isMedia: Bool { mediaCode != nil }
+
+    init(id: String, title: String, keyCode: Int64 = 0, flagMask: UInt64? = nil,
+         mediaCode: Int? = nil, note: String) {
+        self.id = id
+        self.title = title
+        self.keyCode = keyCode
+        self.flagMask = flagMask
+        self.mediaCode = mediaCode
+        self.note = note
+    }
 
     static let all: [HotkeyOption] = [
         HotkeyOption(id: "rightOption", title: "Правый ⌥", keyCode: 61, flagMask: 0x0000_0040,
@@ -34,7 +48,18 @@ struct HotkeyOption: Identifiable, Hashable {
         HotkeyOption(id: "f15", title: "F15", keyCode: 113, flagMask: nil,
                      note: "Есть на полноразмерных клавиатурах"),
         HotkeyOption(id: "f16", title: "F16", keyCode: 106, flagMask: nil,
-                     note: "Есть на полноразмерных клавиатурах")
+                     note: "Есть на полноразмерных клавиатурах"),
+        // Кнопки на проводе гарнитуры. Проверено: каждая шлёт отдельные
+        // нажатие и отпускание, удержание в три секунды доходит целиком.
+        HotkeyOption(id: "mediaPlay", title: "Кнопка на гарнитуре",
+                     mediaCode: 16,
+                     note: "Центральная кнопка на проводе. Ту же кнопку глотаем у плеера"),
+        HotkeyOption(id: "mediaVolumeUp", title: "Громче на гарнитуре",
+                     mediaCode: 0,
+                     note: "Кнопка «громче». Пока назначена, громкость ею не менять"),
+        HotkeyOption(id: "mediaVolumeDown", title: "Тише на гарнитуре",
+                     mediaCode: 1,
+                     note: "Кнопка «тише». Пока назначена, громкость ею не менять")
     ]
 
     static let fallback = all[0]
