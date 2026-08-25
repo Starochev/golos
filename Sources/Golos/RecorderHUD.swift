@@ -24,24 +24,24 @@ final class RecorderHUD {
     /// отложенный orderOut убирал бы окно, показанное уже для новой записи.
     private var generation = 0
 
-    /// Что выбрано переключателем. Без окошка выбирать нечем, всегда текст.
-    var mode: Mode { model.mode }
-
-    /// Перекинуть переключатель с клавиатуры. Работает, только пока окошко
-    /// на экране: без него переключателя не видно, и менять режим вслепую
-    /// значит однажды отправить звук вместо текста.
-    func flipMode() {
-        guard panel != nil, model.visible, model.phase == .recording else { return }
-        model.mode = model.mode == .text ? .audio : .text
+    /// Показать выбранный режим. Хозяин режима не окошко, а контроллер:
+    /// выбирать можно и с выключенным окошком, тогда режим видно по значку
+    /// в строке меню.
+    func setMode(_ mode: Mode) {
+        model.setQuietly(mode)
     }
 
+    /// Щёлкнули по переключателю мышью.
+    var onModeChange: ((Mode) -> Void)?
+
     /// Показать окошко и начать опрашивать громкость.
-    func show(color: NSColor, levelSource: @escaping () -> Float) {
+    func show(color: NSColor, mode: Mode, levelSource: @escaping () -> Float) {
         generation += 1
         self.levelSource = levelSource
         model.color = Color(color)
         model.onPill = RecorderHUD.contrastColor(for: color)
-        model.mode = .text
+        model.setQuietly(mode)
+        model.onChange = { [weak self] in self?.onModeChange?($0) }
         model.reset()
         model.phase = .recording
         ensurePanel()
@@ -178,7 +178,13 @@ private final class HUDModel: ObservableObject {
     @Published var color: Color = .white
     /// Цвет надписи на пилюле переключателя, подобранный под цвет волны.
     @Published var onPill: Color = .white
-    @Published var mode: RecorderHUD.Mode = .text
+    @Published var mode: RecorderHUD.Mode = .text {
+        didSet { if mode != oldValue, reporting { onChange?(mode) } }
+    }
+    /// Сообщать наружу только о щелчках мышью: смена из контроллера
+    /// вернулась бы обратно и закольцевалась.
+    var onChange: ((RecorderHUD.Mode) -> Void)?
+    private var reporting = true
     /// Управляет появлением и уходом: содержимое растёт из центра.
     @Published var visible: Bool = false
 
@@ -187,6 +193,13 @@ private final class HUDModel: ObservableObject {
 
     init() {
         levels = Array(repeating: 0.06, count: 34)
+    }
+
+    /// Поставить режим, не рассказывая об этом наружу.
+    func setQuietly(_ value: RecorderHUD.Mode) {
+        reporting = false
+        mode = value
+        reporting = true
     }
 
     func reset() {

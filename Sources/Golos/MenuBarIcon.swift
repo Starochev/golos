@@ -10,7 +10,7 @@ enum MenuBarIcon {
     enum Look {
         case loading
         case idle
-        case recording(level: CGFloat, color: NSColor?)
+        case recording(level: CGFloat, color: NSColor?, audio: Bool)
         case transcribing(phase: CGFloat)
         case needsModel
         case failed
@@ -33,8 +33,13 @@ enum MenuBarIcon {
             return symbol("exclamationmark.triangle.fill", template: false, tint: .systemOrange)
         case .idle:
             return bars(heights: idleHeights, color: nil)
-        case .recording(let level, let color):
-            return bars(heights: recordingHeights(level: level), color: color)
+        case .recording(let level, let color, let audio):
+            let heights = recordingHeights(level: level)
+            // В режиме звука волна ужимается до трёх полос, справа встаёт нотка:
+            // при выключенном окошке значок остаётся единственным, кто
+            // показывает, чем сейчас отдастся запись.
+            return audio ? barsWithNote(heights: Array(heights[1...3]), color: color)
+                         : bars(heights: heights, color: color)
         case .transcribing(let phase):
             return bars(heights: travellingHeights(phase: phase), color: .secondaryLabelColor)
         }
@@ -82,6 +87,34 @@ enum MenuBarIcon {
         image.unlockFocus()
         // Шаблон только для покоя: цветные состояния система перекрасила бы
         // в чёрный и потеряла бы весь смысл красного при записи.
+        image.isTemplate = (color == nil)
+        return image
+    }
+
+    /// Волна слева, нотка справа. Пятью полосами и ноткой в двадцать точек
+    /// не уложиться, поэтому полос остаётся три.
+    private static func barsWithNote(heights: [CGFloat], color: NSColor?) -> NSImage {
+        let image = NSImage(size: size)
+        image.lockFocus()
+
+        let tint = color ?? .black
+        tint.setFill()
+        var x: CGFloat = 1
+        for height in heights {
+            let rect = NSRect(x: x, y: (size.height - height) / 2, width: barWidth, height: height)
+            NSBezierPath(roundedRect: rect, xRadius: barWidth / 2, yRadius: barWidth / 2).fill()
+            x += barWidth + gap
+        }
+
+        let noteRect = NSRect(x: size.width - 9, y: 1, width: 9, height: 14)
+        if let note = NSImage(systemSymbolName: "music.note", accessibilityDescription: nil)?
+            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 11, weight: .semibold)) {
+            note.draw(in: noteRect, from: .zero, operation: .sourceOver, fraction: 1)
+            tint.set()
+            noteRect.fill(using: .sourceAtop)
+        }
+
+        image.unlockFocus()
         image.isTemplate = (color == nil)
         return image
     }

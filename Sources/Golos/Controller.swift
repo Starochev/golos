@@ -43,6 +43,10 @@ final class Controller {
     private lazy var settingsStore = SettingsStore()
     /// Слова, в которых модель сомневалась. Заполняется фоном после диктовки.
     private lazy var candidates = Candidates()
+    /// Чем отдать текущую запись: текстом в поле или звуком в буфер.
+    /// Хозяин здесь, а не в окошке: переключать можно и с выключенным окошком,
+    /// тогда режим видно по значку в строке меню.
+    private(set) var captureMode: RecorderHUD.Mode = .text
     /// Смена языка или модели требует перезапуска движка. Гасим дребезг:
     /// пока пользователь щёлкает по списку, перезапускать нет смысла.
     private var engineReloadWork: DispatchWorkItem?
@@ -269,10 +273,22 @@ final class Controller {
         case .discard, .cancel:
             endRecording(discard: true)
         case .flipMode:
-            hud.flipMode()
-            Log.write("режим записи: \(hud.mode == .audio ? "звук" : "текст")")
+            guard case .recording = state else { return }
+            setCaptureMode(captureMode == .text ? .audio : .text)
+            hud.setMode(captureMode)
         }
     }
+
+    private func setCaptureMode(_ mode: RecorderHUD.Mode) {
+        guard mode != captureMode else { return }
+        captureMode = mode
+        Log.write("режим записи: \(mode == .audio ? "звук" : "текст")")
+        onCaptureModeChange?()
+    }
+
+    /// Значку в строке меню надо перерисоваться: без окошка он единственный,
+    /// кто показывает выбранный режим.
+    var onCaptureModeChange: (() -> Void)?
 
     /// Пакует запись в голосовое и кладёт в буфер файлом.
     private func exportVoice(wav: Data) {
@@ -314,13 +330,16 @@ final class Controller {
         // Словарь мог поменяться между диктовками — перечитываем.
         config = Config.load()
         recordingGeneration += 1
+        // Каждый раз с чистого листа: звук уходит только по осознанному выбору.
+        captureMode = .text
 
         do {
             try recorder.start()
             state = .recording
             play(.start)
             if config.showHUD {
-                hud.show(color: WaveTheme.color(for: config)) { [weak self] in
+                hud.onModeChange = { [weak self] mode in self?.setCaptureMode(mode) }
+                hud.show(color: WaveTheme.color(for: config), mode: captureMode) { [weak self] in
                     self?.recorder.level ?? 0
                 }
             }
@@ -347,7 +366,7 @@ final class Controller {
 
         // Переключатель в окошке решает, чем отдать надиктованное.
         // Звуком — значит распознавать нечего, сразу пакуем и кладём в буфер.
-        if config.showHUD, hud.mode == .audio {
+        if captureMode == .audio {
             state = .idle
             play(.stop)
             hud.showMessage("Пакую…")
