@@ -107,6 +107,22 @@ enum ModelCatalog {
         directory.appendingPathComponent(model.fileName)
     }
 
+    /// Удаляет скачанную модель. Место она занимает гигабайтами, а вернуть
+    /// её можно в любой момент повторной закачкой.
+    @discardableResult
+    static func remove(_ model: ModelInfo) -> Bool {
+        let url = localURL(for: model)
+        guard FileManager.default.fileExists(atPath: url.path) else { return false }
+        do {
+            try FileManager.default.removeItem(at: url)
+            Log.write("модель удалена: \(model.title)")
+            return true
+        } catch {
+            Log.write("модель не удалилась: \(error.localizedDescription)")
+            return false
+        }
+    }
+
     static func isInstalled(_ model: ModelInfo) -> Bool {
         FileManager.default.fileExists(atPath: localURL(for: model).path)
     }

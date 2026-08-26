@@ -43,6 +43,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) { HIDProbe.start(seconds: 900) }
         }
 
+        // «Golos --models» — окно выбора модели, тоже пункт меню.
+        if arguments.contains("--models") {
+            DispatchQueue.main.async { [weak self] in self?.controller.showModelPicker() }
+        }
+
         // «Golos --settings» — то же, что пункт меню. Удобно, когда значок
         // в строке меню не виден, и одинаково с версией для Windows.
         if arguments.contains("--settings") {

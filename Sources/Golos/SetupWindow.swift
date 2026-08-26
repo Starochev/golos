@@ -52,10 +52,23 @@ private struct ModelPickerView: View {
     @State private var selected: ModelInfo = ModelCatalog.recommended
     @State private var downloader = ModelDownloader()
     @State private var progress: ModelDownloader.Progress?
+    /// Растёт после удаления: SwiftUI сама не узнает, что файла не стало.
+    @State private var installedRevision = 0
+    @State private var pendingDelete: ModelInfo?
     @State private var stage: String = ""
     @State private var error: String?
 
     private var isDownloading: Bool { progress != nil }
+
+    /// Модель, на которой сейчас работает распознавание. Её удалять нельзя:
+    /// приложение останется без движка посреди работы.
+    private func inUse(_ model: ModelInfo) -> Bool {
+        Config.load().modelPath == ModelCatalog.localURL(for: model).path
+    }
+
+    private func askToDelete(_ model: ModelInfo) {
+        pendingDelete = model
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -67,7 +80,9 @@ private struct ModelPickerView: View {
                     ForEach(ModelCatalog.all) { model in
                         ModelCard(model: model,
                                   isSelected: selected.id == model.id,
-                                  isInstalled: ModelCatalog.isInstalled(model))
+                                  isInstalled: ModelCatalog.isInstalled(model),
+                                  inUse: inUse(model),
+                                  onDelete: { askToDelete(model) })
                             .onTapGesture { if !isDownloading { selected = model } }
                     }
                 }
@@ -130,6 +145,20 @@ private struct ModelPickerView: View {
             }
         }
         .padding(16)
+        .id(installedRevision)
+        .alert("Удалить модель?", isPresented: Binding(
+            get: { pendingDelete != nil },
+            set: { if !$0 { pendingDelete = nil } }
+        ), presenting: pendingDelete) { model in
+            Button("Удалить", role: .destructive) {
+                ModelCatalog.remove(model)
+                installedRevision += 1
+                pendingDelete = nil
+            }
+            Button("Отмена", role: .cancel) { pendingDelete = nil }
+        } message: { model in
+            Text("«\(model.title)» освободит \(model.sizeText). Скачать заново можно в любой момент, но это опять \(model.sizeText) из сети.")
+        }
     }
 
     private func bytesText(_ p: ModelDownloader.Progress) -> String {
@@ -192,6 +221,9 @@ private struct ModelCard: View {
     let model: ModelInfo
     let isSelected: Bool
     let isInstalled: Bool
+    /// На этой модели сейчас работает распознавание.
+    let inUse: Bool
+    let onDelete: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -218,6 +250,18 @@ private struct ModelCard: View {
                 Text(model.sizeText)
                     .font(.system(size: 12).monospacedDigit())
                     .foregroundStyle(.secondary)
+                if isInstalled {
+                    Button(action: onDelete) {
+                        Image(systemName: "trash")
+                            .font(.system(size: 12))
+                    }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(inUse ? Color.secondary.opacity(0.4) : Color.secondary)
+                    .disabled(inUse)
+                    .help(inUse
+                          ? "На этой модели сейчас работает распознавание"
+                          : "Удалить с диска, освободить \(model.sizeText)")
+                }
             }
 
             Text(model.speedNote)
