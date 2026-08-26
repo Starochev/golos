@@ -499,7 +499,21 @@ final class Controller {
         }
 
         lastText = text
-        if current { hud.hide() }
+
+        // Подсказка про слова-паразиты: показываем сразу после диктовки,
+        // пока человек ещё помнит, что говорил. Молчим, когда их нет:
+        // тишина и есть награда.
+        let hint = config.speechHints
+            ? Speech.hint(for: text, words: config.fillerWords)
+            : nil
+        if current {
+            if let hint {
+                hud.showMessage(hint, hideAfter: 1.8)
+            } else {
+                hud.hide()
+            }
+        }
+
         let mode = Inserter.Mode(rawValue: config.insertMode) ?? .paste
         Inserter.insert(text, mode: mode)
         // Пишем длину: если текст не появился в поле, по журналу видно,

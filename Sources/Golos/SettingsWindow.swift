@@ -215,6 +215,12 @@ private struct GeneralTab: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
 
+                Toggle("Показывать слова-паразиты после диктовки", isOn: $store.config.speechHints)
+                Text("Окошко на секунду покажет, какие слова-паразиты прозвучали: «допустим ×3». Только их, без оценок и счёта. Когда их нет, оно молчит. Список слов лежит в config.json, ключ fillerWords: у каждого он свой.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
                 Picker("Знак в конце фразы", selection: $store.config.finalPunctuation) {
                     Text("Как распознано").tag("keep")
                     Text("Убирать точку").tag("period")

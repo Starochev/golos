@@ -46,6 +46,12 @@ struct Config: Codable {
     /// а не номер: номера у звуковых устройств перетасовываются, а имя
     /// переносится вместе с конфигом. Ключ общий с версией для Windows.
     var inputDevice: String = ""
+    /// Показывать после диктовки, какие слова-паразиты прозвучали.
+    /// По умолчанию выключено: инструмент должен просто работать, пока
+    /// человек сам не захочет следить за речью.
+    var speechHints: Bool = false
+    /// За какими словами следить. Правится руками: у каждого свой набор.
+    var fillerWords: [String] = Speech.defaultFillers
     /// Вторая клавиша записи: идентификатор из HotkeyOption.all.
     /// Пусто — выключена. Нужна, чтобы две удобные клавиши работали
     /// одновременно, а не через переключение в настройках.
@@ -120,6 +126,8 @@ struct Config: Codable {
         keepConvertedAudio = try c.decodeIfPresent(Bool.self, forKey: .keepConvertedAudio)
             ?? fallback.keepConvertedAudio
         inputDevice = try c.decodeIfPresent(String.self, forKey: .inputDevice) ?? fallback.inputDevice
+        speechHints = try c.decodeIfPresent(Bool.self, forKey: .speechHints) ?? fallback.speechHints
+        fillerWords = try c.decodeIfPresent([String].self, forKey: .fillerWords) ?? fallback.fillerWords
         secondHotkey = try c.decodeIfPresent(String.self, forKey: .secondHotkey) ?? fallback.secondHotkey
         finalPunctuation = try c.decodeIfPresent(String.self, forKey: .finalPunctuation) ?? fallback.finalPunctuation
         collectCandidates = try c.decodeIfPresent(Bool.self, forKey: .collectCandidates) ?? fallback.collectCandidates
