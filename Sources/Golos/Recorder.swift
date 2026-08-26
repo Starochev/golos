@@ -110,6 +110,19 @@ final class Recorder {
     }
 
     /// Останавливает запись и отдаёт готовый WAV. nil — если писать было нечего.
+    /// Кусок записанного, от секунды до секунды, не прерывая запись.
+    /// Нужен для живого разбора: слушаем и одновременно смотрим, что уже
+    /// сказано. Отдаёт nil, пока нужного куска ещё не набралось.
+    func excerpt(from: Double, to: Double) -> Data? {
+        lock.lock()
+        defer { lock.unlock() }
+        let rate = target.sampleRate
+        let start = max(0, Int(from * rate))
+        let end = min(samples.count, Int(to * rate))
+        guard end - start > Int(rate / 2) else { return nil }
+        return Recorder.wav(from: Array(samples[start..<end]), sampleRate: Int(rate))
+    }
+
     func stop() -> Data? {
         guard isRunning else { return nil }
         isRunning = false

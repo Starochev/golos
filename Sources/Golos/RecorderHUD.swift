@@ -24,6 +24,11 @@ final class RecorderHUD {
     /// отложенный orderOut убирал бы окно, показанное уже для новой записи.
     private var generation = 0
 
+    /// Живая подпись над волной. Пусто — строка просто не занимает места.
+    func setFillers(_ text: String) {
+        model.fillers = text
+    }
+
     /// Показать выбранный режим. Хозяин режима не окошко, а контроллер:
     /// выбирать можно и с выключенным окошком, тогда режим видно по значку
     /// в строке меню.
@@ -41,6 +46,7 @@ final class RecorderHUD {
         model.color = Color(color)
         model.onPill = RecorderHUD.contrastColor(for: color)
         model.setQuietly(mode)
+        model.fillers = ""
         model.onChange = { [weak self] in self?.onModeChange?($0) }
         model.reset()
         model.phase = .recording
@@ -118,7 +124,7 @@ final class RecorderHUD {
     private func ensurePanel() {
         guard panel == nil else { return }
         let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 260, height: 108),
+            contentRect: NSRect(x: 0, y: 0, width: 300, height: 124),
             // nonactivatingPanel — то самое, что не даёт увести фокус.
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
@@ -178,6 +184,8 @@ private final class HUDModel: ObservableObject {
     @Published var color: Color = .white
     /// Цвет надписи на пилюле переключателя, подобранный под цвет волны.
     @Published var onPill: Color = .white
+    /// Живая строчка над волной: что из паразитов уже прозвучало.
+    @Published var fillers: String = ""
     @Published var mode: RecorderHUD.Mode = .text {
         didSet { if mode != oldValue, reporting { onChange?(mode) } }
     }
@@ -235,7 +243,15 @@ private struct HUDView: View {
 
             switch model.phase {
             case .recording:
-                VStack(spacing: 9) {
+                VStack(spacing: 7) {
+                    // Строка живёт всегда, чтобы волна не прыгала, когда
+                    // паразит появился и когда его нет.
+                    Text(model.fillers)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(model.color)
+                        .lineLimit(1)
+                        .frame(height: 13)
+                        .animation(.easeOut(duration: 0.18), value: model.fillers)
                     waveform
                     modeSwitch
                 }
@@ -245,7 +261,7 @@ private struct HUDView: View {
                 note(text, pulsing: false)
             }
         }
-        .frame(width: 260, height: 108)
+        .frame(width: 300, height: 124)
         .scaleEffect(model.visible ? 1 : 0.86)
         .opacity(model.visible ? 1 : 0)
         .animation(.easeOut(duration: 0.28), value: model.visible)

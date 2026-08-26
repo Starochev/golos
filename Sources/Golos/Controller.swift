@@ -47,6 +47,16 @@ final class Controller {
     /// Хозяин здесь, а не в окошке: переключать можно и с выключенным окошком,
     /// тогда режим видно по значку в строке меню.
     private(set) var captureMode: RecorderHUD.Mode = .text
+
+    /// Живой разбор речи: докуда уже разобрано, что нашлось и не занят ли
+    /// сервер прошлым куском.
+    private var liveTimer: Timer?
+    private var liveCursor: Double = 0
+    private var liveFillers: [String: Int] = [:]
+    private var liveBusy = false
+    /// Кусок, который отдаём на разбор. Меньше четырёх секунд смысла нет:
+    /// на коротких обрывках распознавание начинает выдумывать.
+    private static let liveSegment: Double = 4
     /// Смена языка или модели требует перезапуска движка. Гасим дребезг:
     /// пока пользователь щёлкает по списку, перезапускать нет смысла.
     private var engineReloadWork: DispatchWorkItem?
@@ -282,6 +292,61 @@ final class Controller {
         }
     }
 
+    /// Разбирает речь прямо во время диктовки, кусками по четыре секунды.
+    ///
+    /// Каждый кусок разбирается ровно один раз: курсор двигается вперёд,
+    /// назад не возвращаемся. Иначе на длинной диктовке пришлось бы каждый
+    /// раз перемалывать всё сказанное заново.
+    private func startLiveSpeech() {
+        stopLiveSpeech()
+        liveCursor = 0
+        liveFillers = [:]
+        liveBusy = false
+
+        let timer = Timer(timeInterval: 1.0, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.stepLiveSpeech() }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        liveTimer = timer
+    }
+
+    private func stopLiveSpeech() {
+        liveTimer?.invalidate()
+        liveTimer = nil
+    }
+
+    private func stepLiveSpeech() {
+        guard !liveBusy, recorder.isRunning, whisper.ready else { return }
+        let now = recorder.duration
+        let until = liveCursor + Controller.liveSegment
+        guard now >= until else { return }
+
+        guard let excerpt = recorder.excerpt(from: liveCursor, to: until) else { return }
+        liveCursor = until
+        liveBusy = true
+
+        // Без словаря: он тут только замедлил бы и подсказал модели лишнего.
+        whisper.transcribe(wav: excerpt, prompt: "") { [weak self] result in
+            guard let self else { return }
+            self.liveBusy = false
+            guard case .success(let text) = result, !text.isEmpty else { return }
+            let found = Speech.count(text, words: self.config.fillerWords)
+            guard !found.isEmpty else { return }
+            for (word, times) in found { self.liveFillers[word, default: 0] += times }
+            Log.write("живой разбор: " + found.map { "\($0.word) ×\($0.times)" }.joined(separator: ", "))
+            self.hud.setFillers(self.liveSummary())
+        }
+    }
+
+    /// Частые сверху, показываем не больше трёх: это подсказка, не отчёт.
+    private func liveSummary() -> String {
+        liveFillers
+            .sorted { $0.value == $1.value ? $0.key < $1.key : $0.value > $1.value }
+            .prefix(3)
+            .map { "\($0.key) ×\($0.value)" }
+            .joined(separator: "  ")
+    }
+
     private func setCaptureMode(_ mode: RecorderHUD.Mode) {
         guard mode != captureMode else { return }
         captureMode = mode
@@ -347,6 +412,7 @@ final class Controller {
                 hud.show(color: WaveTheme.color(for: config), mode: captureMode) { [weak self] in
                     self?.recorder.level ?? 0
                 }
+                if config.speechHints { startLiveSpeech() }
             }
         } catch {
             state = .failed(error.localizedDescription)
@@ -355,6 +421,7 @@ final class Controller {
 
     private func endRecording(discard: Bool) {
         guard recorder.isRunning else { return }
+        stopLiveSpeech()
         let wav = recorder.stop()
 
         if discard {
@@ -500,19 +567,7 @@ final class Controller {
 
         lastText = text
 
-        // Подсказка про слова-паразиты: показываем сразу после диктовки,
-        // пока человек ещё помнит, что говорил. Молчим, когда их нет:
-        // тишина и есть награда.
-        let hint = config.speechHints
-            ? Speech.hint(for: text, words: config.fillerWords)
-            : nil
-        if current {
-            if let hint {
-                hud.showMessage(hint, hideAfter: 1.8)
-            } else {
-                hud.hide()
-            }
-        }
+        if current { hud.hide() }
 
         let mode = Inserter.Mode(rawValue: config.insertMode) ?? .paste
         Inserter.insert(text, mode: mode)
