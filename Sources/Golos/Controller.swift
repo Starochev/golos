@@ -510,9 +510,15 @@ final class Controller {
                 // работает и на выдумках, которых нет ни в одном списке.
                 let thin = Hallucination.looksThin(
                     text: raw, audioDuration: Self.duration(ofWav: wav))
+                // Иероглифы в русской диктовке: голосом их не произнести,
+                // значит декодер сорвался.
+                let foreign = !Hallucination.scriptExempt.contains(self.config.language)
+                    && Hallucination.containsForeignScript(raw)
 
-                if attempt == 1, invented || degenerate || thin {
-                    let reason = degenerate ? "зациклилось" : (invented ? "заученная фраза" : "текста меньше, чем речи")
+                if attempt == 1, invented || degenerate || thin || foreign {
+                    let reason = degenerate ? "зациклилось"
+                        : (foreign ? "чужая письменность"
+                        : (invented ? "заученная фраза" : "текста меньше, чем речи"))
                     Log.write("похоже на выдумку модели (\(reason)): «\(raw)» — переспрашиваю без словаря")
                     self.transcribe(wav: wav, generation: generation, attempt: 2,
                                     completion: completion)
