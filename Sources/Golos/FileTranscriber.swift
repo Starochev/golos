@@ -137,34 +137,60 @@ final class FileTranscriber {
 
     private func finish(segments: [Whisper.Segment], wav: Data, source: URL, config: Config,
                         onFinish: @escaping (Swift.Result<Result, Error>) -> Void) {
-        let folder = outputFolder(for: source, config: config)
         let base = source.deletingPathExtension().lastPathComponent
         let cleaned = clean(segments, config: config)
 
-        do {
-            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        // Папка рядом с исходником бывает недоступна для записи: диктофон,
+        // флешка, сетевой диск, образ. Терять из-за этого сорок минут работы
+        // нельзя, поэтому есть запасная. Порядок: выбранная, потом Загрузки,
+        // потом папка приложения.
+        var folders = [outputFolder(for: source, config: config)]
+        let downloads = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+        if let downloads { folders.append(downloads) }
+        folders.append(Config.directory.appendingPathComponent("Расшифровки"))
 
-            let textFile = folder.appendingPathComponent("\(base).txt")
-            try plainText(cleaned).write(to: textFile, atomically: true, encoding: .utf8)
+        var lastError: Error?
+        for (index, folder) in folders.enumerated() {
+            do {
+                try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
 
-            let subtitleFile = folder.appendingPathComponent("\(base).srt")
-            try subtitles(cleaned).write(to: subtitleFile, atomically: true, encoding: .utf8)
+                let textFile = folder.appendingPathComponent("\(base).txt")
+                try plainText(cleaned).write(to: textFile, atomically: true, encoding: .utf8)
 
-            var audioFile: URL?
-            if config.keepConvertedAudio {
-                let target = folder.appendingPathComponent("\(base).wav")
-                try wav.write(to: target)
-                audioFile = target
+                let subtitleFile = folder.appendingPathComponent("\(base).srt")
+                try subtitles(cleaned).write(to: subtitleFile, atomically: true, encoding: .utf8)
+
+                var audioFile: URL?
+                if config.keepConvertedAudio {
+                    let target = folder.appendingPathComponent("\(base).wav")
+                    try wav.write(to: target)
+                    audioFile = target
+                }
+
+                if index > 0 {
+                    Log.write("папка «\(folders[0].path)» недоступна для записи (\(lastError?.localizedDescription ?? "?")), расшифровка сохранена в \(folder.path)")
+                }
+                let duration = cleaned.last?.end ?? 0
+                Log.write("расшифровка готова: \(textFile.path), отрезков \(cleaned.count)")
+                onFinish(.success(Result(textFile: textFile, subtitleFile: subtitleFile,
+                                         audioFile: audioFile, segments: cleaned.count,
+                                         duration: duration)))
+                return
+            } catch {
+                lastError = error
+                // Мусор от половины записи убираем, чтобы рядом с исходником
+                // не оставался обрезанный txt без субтитров.
+                try? FileManager.default.removeItem(at: folder.appendingPathComponent("\(base).txt"))
             }
-
-            let duration = cleaned.last?.end ?? 0
-            Log.write("расшифровка готова: \(textFile.path), отрезков \(cleaned.count)")
-            onFinish(.success(Result(textFile: textFile, subtitleFile: subtitleFile,
-                                     audioFile: audioFile, segments: cleaned.count,
-                                     duration: duration)))
-        } catch {
-            onFinish(.failure(error))
         }
+
+        Log.write("расшифровку не удалось сохранить никуда: \(lastError?.localizedDescription ?? "?")")
+        onFinish(.failure(lastError ?? DecodeFailure.nowhereToWrite))
+    }
+
+    enum DecodeFailure: LocalizedError {
+        case nowhereToWrite
+        var errorDescription: String? { "Некуда сохранить расшифровку" }
     }
 
     private func clean(_ segments: [Whisper.Segment], config: Config) -> [Whisper.Segment] {

@@ -543,6 +543,12 @@ final class Controller {
                 completion(cleaned)
 
             case .failure(let error):
+                // Движок мог умереть: тогда все следующие диктовки уходили бы
+                // в пустоту, пока человек сам не перезапустит приложение.
+                if self.whisper.looksDisconnected(error) {
+                    Log.write("движок не отвечает, поднимаю заново")
+                    self.scheduleEngineReload()
+                }
                 // Окошко и состояние трогаем, только если новая запись
                 // не началась: иначе погасим чужое.
                 guard generation == self.recordingGeneration else { completion(nil); return }
@@ -571,7 +577,15 @@ final class Controller {
         Log.write("распознано: \(text)")
 
         guard !text.isEmpty else {
-            if current { hud.hide(); state = .idle }
+            // Распознать не вышло, но речь была. Запись сохраняем: иначе
+            // минута надиктованного пропадает без следа, а вернуть её потом
+            // неоткуда. Так уже терялась целая диктовка, когда упал движок.
+            if config.keepHistory { saveHistory(wav: wav, text: "") }
+            Log.write("распознать не вышло, запись сохранена в историю")
+            if current {
+                hud.showMessage("Не распознал, запись в истории", hideAfter: 2.5)
+                state = .idle
+            }
             return
         }
 
@@ -624,8 +638,19 @@ final class Controller {
     // MARK: - Мелочи
 
     func copyLastAgain() {
-        guard !lastText.isEmpty else { return }
+        guard !lastText.isEmpty else {
+            // Молчать нельзя: в буфере лежит что-то постороннее, человек
+            // вставит его и решит, что приложение подсунуло чужое.
+            Log.write("копировать нечего: последней расшифровки нет")
+            state = .failed("Копировать нечего: последней расшифровки нет")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
+                guard let self, case .failed = self.state else { return }
+                self.state = .idle
+            }
+            return
+        }
         Inserter.insert(lastText, mode: .clipboard)
+        Log.write("последняя расшифровка снова в буфере, \(lastText.count) знаков")
     }
 
     private func play(_ moment: Sounds.Moment) {

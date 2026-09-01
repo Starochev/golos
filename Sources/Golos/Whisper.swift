@@ -49,6 +49,15 @@ final class Whisper {
     }
 
     /// Ищем бинарник сами: полагаться на PATH нельзя по той же причине.
+    /// Похоже ли, что движок отвалился, а не просто ответил ошибкой.
+    /// URLSession в таких случаях даёт «не удалось соединиться».
+    nonisolated func looksDisconnected(_ error: Error) -> Bool {
+        let code = (error as NSError).code
+        return (error as NSError).domain == NSURLErrorDomain
+            && [NSURLErrorCannotConnectToHost, NSURLErrorNetworkConnectionLost,
+                NSURLErrorNotConnectedToInternet, NSURLErrorCannotFindHost].contains(code)
+    }
+
     static func locate(_ name: String) -> String? {
         let dirs = ["/opt/homebrew/bin", "/usr/local/bin", "/opt/local/bin", "/usr/bin"]
         return dirs.map { $0 + "/" + name }.first { FileManager.default.isExecutableFile(atPath: $0) }
