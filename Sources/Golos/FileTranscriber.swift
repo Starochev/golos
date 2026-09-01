@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 /// Расшифровка готового файла: встречи, созвона, записи экрана.
@@ -142,11 +143,16 @@ final class FileTranscriber {
 
         // Папка рядом с исходником бывает недоступна для записи: диктофон,
         // флешка, сетевой диск, образ. Терять из-за этого сорок минут работы
-        // нельзя, поэтому есть запасная. Порядок: выбранная, потом Загрузки,
-        // потом папка приложения.
-        var folders = [outputFolder(for: source, config: config)]
-        let downloads = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
-        if let downloads { folders.append(downloads) }
+        // нельзя, поэтому дальше спрашиваем, куда положить, а если человек
+        // отказался — кладём в Загрузки, лишь бы не пропало.
+        let preferred = outputFolder(for: source, config: config)
+        var folders = [preferred]
+        if !FileTranscriber.writable(preferred), let chosen = askWhereToSave(base: base, source: source) {
+            folders.append(chosen)
+        }
+        if let downloads = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first {
+            folders.append(downloads)
+        }
         folders.append(Config.directory.appendingPathComponent("Расшифровки"))
 
         var lastError: Error?
@@ -204,6 +210,36 @@ final class FileTranscriber {
     }
 
     /// Пусто в настройках — кладём рядом с исходником, как и договаривались.
+    /// Можно ли писать в папку. Проверяем заранее, чтобы спросить человека
+    /// до того, как он увидит ошибку, а не после.
+    static func writable(_ folder: URL) -> Bool {
+        let fm = FileManager.default
+        if !fm.fileExists(atPath: folder.path) {
+            // Папки ещё нет: создастся ли она, покажет попытка.
+            guard (try? fm.createDirectory(at: folder, withIntermediateDirectories: true)) != nil
+            else { return false }
+        }
+        return fm.isWritableFile(atPath: folder.path)
+    }
+
+    /// Спрашивает, куда положить расшифровку. Возвращает nil, если отказались.
+    private func askWhereToSave(base: String, source: URL) -> URL? {
+        let panel = NSSavePanel()
+        panel.title = "Куда сохранить расшифровку"
+        panel.message = "Рядом с «\(source.lastPathComponent)» записать нельзя: том только для чтения."
+        panel.nameFieldStringValue = "\(base).txt"
+        panel.canCreateDirectories = true
+        panel.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+
+        NSApp.activate(ignoringOtherApps: true)
+        guard panel.runModal() == .OK, let url = panel.url else {
+            Log.write("сохранение отменили, кладу в Загрузки")
+            return nil
+        }
+        // Имя файла складывает сама запись: рядом лягут ещё .srt и, может, .wav.
+        return url.deletingLastPathComponent()
+    }
+
     private func outputFolder(for source: URL, config: Config) -> URL {
         let stored = config.fileOutputFolder.trimmingCharacters(in: .whitespaces)
         guard !stored.isEmpty else { return source.deletingLastPathComponent() }
