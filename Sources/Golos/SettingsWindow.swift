@@ -483,6 +483,11 @@ private struct VocabularyTab: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
+            Text("Держи список коротким. Словарь идёт в распознавание подсказкой и влияет не только на перечисленные слова: чем он длиннее, тем чаще модель срывается на соседних кусках речи и подставляет выдуманную фразу вместо сказанного. Добавляй только то, что действительно произносишь и что распознаётся неверно.")
+                .font(.system(size: 11))
+                .foregroundStyle(.orange)
+                .fixedSize(horizontal: false, vertical: true)
+
             HStack(spacing: 8) {
                 TextField("Например: pull request", text: $newTerm)
                     .textFieldStyle(.roundedBorder)
