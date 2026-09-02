@@ -1,6 +1,6 @@
 {
-  "version": "0.4.1",
-  "url": "https://github.com/Starochev/golos/releases/download/win-v0.4.1/Golos.exe",
-  "sha256": "595B5A6DB4C13700444E888F6865CBB85B18C833ADDDF32132B63C5A01A1BCDC",
-  "notes": "Точка в конце диктовки убирается по умолчанию, вопросительный и восклицательный остаются."
+  "version": "0.4.2",
+  "url": "https://github.com/Starochev/golos/releases/download/win-v0.4.2/Golos.exe",
+  "sha256": "71CEACBBC833C5B245CBCFE99C9020281DE8BAB75B24C42CF473EA1BFE651BA4",
+  "notes": "Заученная фраза из субтитров больше не проходит на коротких записях."
 }
