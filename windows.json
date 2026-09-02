@@ -1,6 +1,6 @@
 {
-  "version": "0.4.0",
-  "url": "https://github.com/Starochev/golos/releases/download/win-v0.4.0/Golos.exe",
-  "sha256": "FF73B6210547783AAD25447E53B7DD2F8ECCB3FA21A8579EA1B55E51C0B4E856",
-  "notes": "Ничего не теряется: запись сохраняется даже при сбое, движок поднимается заново, расшифровка находит куда лечь."
+  "version": "0.4.1",
+  "url": "https://github.com/Starochev/golos/releases/download/win-v0.4.1/Golos.exe",
+  "sha256": "595B5A6DB4C13700444E888F6865CBB85B18C833ADDDF32132B63C5A01A1BCDC",
+  "notes": "Точка в конце диктовки убирается по умолчанию, вопросительный и восклицательный остаются."
 }
