@@ -7,13 +7,21 @@ import Foundation
 /// а opus, хоть и вдвое меньше, macOS сама не откроет. Кодировщик системный,
 /// доставлять ничего не надо.
 enum History {
-    /// Пережимает всё, что осталось несжатым: записи от прошлых версий
-    /// и те, чьё сжатие оборвалось. Свежие не трогаем, они могут быть заняты.
+    /// Сколько запись лежит нетронутой, прежде чем её пережать.
+    ///
+    /// Свежие записи трогать нельзя: именно по ним разбираются жалобы
+    /// «посмотри, он неправильно расшифровал», а m4a теряет часть звука,
+    /// и тот же файл после пережатия распознаётся уже иначе. Полчаса хватает,
+    /// чтобы человек успел заметить сбой и позвать разбираться.
+    private static let untouchedMinutes: Double = 30
+
+    /// Пережимает всё, что отлежалось. Свежие записи остаются как есть,
+    /// чтобы сбой можно было воспроизвести на том самом звуке.
     static func compressLeftovers() {
         let dir = Config.directory.appendingPathComponent("history")
         let files = (try? FileManager.default.contentsOfDirectory(
             at: dir, includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
-        let deadline = Date().addingTimeInterval(-120)
+        let deadline = Date().addingTimeInterval(-untouchedMinutes * 60)
         for file in files where file.pathExtension == "wav" {
             let modified = (try? file.resourceValues(forKeys: [.contentModificationDateKey]))?
                 .contentModificationDate ?? Date()
