@@ -92,6 +92,54 @@ public static class Hallucination
     /// макета» человек мог сказать сам. Решает плотность — сколько знаков
     /// приходится на секунду записи.
     /// </summary>
+    /// <summary>
+    /// Короче этого низкая плотность ни о чём не говорит: за две секунды
+    /// человек успевает сказать «Да», и это ответ, а не потеря.
+    /// </summary>
+    private const double ThinMinimumSeconds = 2.5;
+
+    /// <summary>
+    /// Текста заметно меньше, чем было речи, что бы в нём ни было написано.
+    ///
+    /// Отдельно от LooksInvented, потому что там плотность проверяется только
+    /// у знакомых заученных фраз, а модель выдумывает и незнакомые.
+    /// Порог замерен по истории диктовок: медиана 11,2 знака в секунду,
+    /// ниже четырёх оказались единицы, и все были недобраны.
+    /// </summary>
+    public static bool LooksThin(string text, double audioSeconds)
+    {
+        if (audioSeconds < ThinMinimumSeconds) return false;
+        return text.Length / audioSeconds < MinimumDensity;
+    }
+
+    /// <summary>
+    /// Чужая письменность: иероглифы, кана, хангыль, арабица. Для диктовки
+    /// на русском это верный признак сорвавшегося декодера, а не речи:
+    /// произнести иероглиф голосом нельзя.
+    /// </summary>
+    public static bool ContainsForeignScript(string text)
+    {
+        foreach (var ch in text)
+        {
+            var c = (int)ch;
+            if ((c >= 0x0590 && c <= 0x05FF) ||   // иврит
+                (c >= 0x0600 && c <= 0x06FF) ||   // арабица
+                (c >= 0x0900 && c <= 0x097F) ||   // деванагари
+                (c >= 0x0E00 && c <= 0x0E7F) ||   // тайская
+                (c >= 0x1100 && c <= 0x11FF) ||   // хангыль, чамо
+                (c >= 0x3040 && c <= 0x30FF) ||   // хирагана и катакана
+                (c >= 0x3400 && c <= 0x4DBF) ||   // иероглифы, расширение A
+                (c >= 0x4E00 && c <= 0x9FFF) ||   // иероглифы
+                (c >= 0xAC00 && c <= 0xD7AF))     // хангыль, слоги
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>Языки, для которых проверка на чужую письменность бессмысленна.</summary>
+    public static readonly HashSet<string> ScriptExempt =
+        new(StringComparer.OrdinalIgnoreCase) { "ja", "zh", "ko", "ar", "he", "th", "hi", "auto" };
+
     public static bool LooksInvented(string text, double audioSeconds)
     {
         var normalized = Normalize(text);

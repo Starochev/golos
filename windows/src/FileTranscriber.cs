@@ -76,31 +76,90 @@ public sealed class FileTranscriber
 
     private Result Write(List<Whisper.Segment> segments, byte[] wav, string source, Config config)
     {
-        var folder = OutputFolder(source, config);
         var name = Path.GetFileNameWithoutExtension(source);
         var cleaned = segments
             .Select(s => s with { Text = config.ApplyReplacements(s.Text).Trim() })
             .Where(s => s.Text.Length > 0)
             .ToList();
 
-        Directory.CreateDirectory(folder);
-
-        var textFile = Path.Combine(folder, name + ".txt");
-        File.WriteAllText(textFile, PlainText(cleaned));
-
-        var subtitleFile = Path.Combine(folder, name + ".srt");
-        File.WriteAllText(subtitleFile, Subtitles(cleaned));
-
-        string? audioFile = null;
-        if (config.KeepConvertedAudio)
+        // Папка рядом с исходником бывает недоступна для записи: диктофон,
+        // флешка, сетевой диск. Терять из-за этого сорок минут работы нельзя,
+        // поэтому спрашиваем куда, а при отказе кладём в Загрузки.
+        var preferred = OutputFolder(source, config);
+        var folders = new List<string> { preferred };
+        if (!Writable(preferred))
         {
-            audioFile = Path.Combine(folder, name + ".wav");
-            File.WriteAllBytes(audioFile, wav);
+            var chosen = AskWhereToSave(name, source);
+            if (chosen != null) folders.Add(chosen);
         }
+        folders.Add(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads"));
+        folders.Add(Path.Combine(Config.Directory, "Расшифровки"));
 
-        var duration = cleaned.Count > 0 ? cleaned[^1].End : 0;
-        Log.Write($"расшифровка готова: {textFile}, отрезков {cleaned.Count}");
-        return new Result(textFile, subtitleFile, audioFile, cleaned.Count, duration);
+        Exception? last = null;
+        for (var i = 0; i < folders.Count; i++)
+        {
+            try
+            {
+                Directory.CreateDirectory(folders[i]);
+
+                var textFile = Path.Combine(folders[i], name + ".txt");
+                File.WriteAllText(textFile, PlainText(cleaned));
+
+                var subtitleFile = Path.Combine(folders[i], name + ".srt");
+                File.WriteAllText(subtitleFile, Subtitles(cleaned));
+
+                string? audioFile = null;
+                if (config.KeepConvertedAudio)
+                {
+                    audioFile = Path.Combine(folders[i], name + ".wav");
+                    File.WriteAllBytes(audioFile, wav);
+                }
+
+                if (i > 0) Log.Write($"папка «{preferred}» недоступна для записи, расшифровка сохранена в {folders[i]}");
+                var duration = cleaned.Count > 0 ? cleaned[^1].End : 0;
+                Log.Write($"расшифровка готова: {textFile}, отрезков {cleaned.Count}");
+                return new Result(textFile, subtitleFile, audioFile, cleaned.Count, duration);
+            }
+            catch (Exception e)
+            {
+                last = e;
+                try { File.Delete(Path.Combine(folders[i], name + ".txt")); } catch { }
+            }
+        }
+        throw last ?? new IOException("Некуда сохранить расшифровку");
+    }
+
+    /// <summary>Можно ли писать в папку. Проверяем заранее, а не по ошибке.</summary>
+    private static bool Writable(string folder)
+    {
+        try
+        {
+            Directory.CreateDirectory(folder);
+            var probe = Path.Combine(folder, ".golos-probe");
+            File.WriteAllText(probe, "");
+            File.Delete(probe);
+            return true;
+        }
+        catch { return false; }
+    }
+
+    /// <summary>Спрашивает, куда положить. null — отказались.</summary>
+    private static string? AskWhereToSave(string name, string source)
+    {
+        try
+        {
+            using var dialog = new SaveFileDialog
+            {
+                Title = "Куда сохранить расшифровку",
+                FileName = name + ".txt",
+                Filter = "Текст (*.txt)|*.txt",
+                InitialDirectory = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads")
+            };
+            if (dialog.ShowDialog() != DialogResult.OK) return null;
+            return Path.GetDirectoryName(dialog.FileName);
+        }
+        catch { return null; }
     }
 
     /// <summary>Пусто в настройках — кладём рядом с исходником.</summary>

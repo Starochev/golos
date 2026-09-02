@@ -479,6 +479,9 @@ public sealed class SettingsForm : Form
 
         layout.Controls.Add(Header("Слова, которые нужно писать латиницей"));
         layout.Controls.Add(Hint("Подсказка распознаванию: перечисленное здесь оно будет писать как написано, а не транслитом. Русские слова добавлять не нужно."));
+        var vocabWarning = Hint("Держи список коротким. Словарь идёт в распознавание подсказкой и влияет не только на перечисленные слова: чем он длиннее, тем чаще модель срывается на соседних кусках речи и подставляет выдуманную фразу вместо сказанного. Добавляй только то, что действительно произносишь и что распознаётся неверно.");
+        vocabWarning.ForeColor = Color.DarkOrange;
+        layout.Controls.Add(vocabWarning);
 
         var row = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.LeftToRight, Margin = new Padding(0, 4, 0, 4) };
         newTermBox.Width = 420;

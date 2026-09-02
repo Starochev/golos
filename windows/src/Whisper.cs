@@ -269,10 +269,17 @@ public sealed class Whisper : IDisposable
         }
         catch (Exception e)
         {
+            // Движок мог умереть: тогда все следующие диктовки уходили бы
+            // в пустоту, пока человек сам не перезапустит приложение.
+            if (e is HttpRequestException || e.InnerException is System.Net.Sockets.SocketException)
+                Disconnected = true;
             SetError(e.Message);
             return null;
         }
     }
+
+    /// <summary>Движок перестал отвечать. Снимается перезапуском.</summary>
+    public bool Disconnected { get; private set; }
 
     private static string Trim(string s) => s.Length > 200 ? s[..200] : s;
 

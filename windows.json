@@ -1,6 +1,6 @@
 {
-  "version": "0.3.1",
-  "url": "https://github.com/Starochev/golos/releases/download/win-v0.3.1/Golos.exe",
-  "sha256": "9F6E643157B19EAE83EC59F69FDB062612F841BFDAB866D84F144430022D7E9A",
-  "notes": "Вторая клавиша записи: работает наравне с основной."
+  "version": "0.4.0",
+  "url": "https://github.com/Starochev/golos/releases/download/win-v0.4.0/Golos.exe",
+  "sha256": "FF73B6210547783AAD25447E53B7DD2F8ECCB3FA21A8579EA1B55E51C0B4E856",
+  "notes": "Ничего не теряется: запись сохраняется даже при сбое, движок поднимается заново, расшифровка находит куда лечь."
 }

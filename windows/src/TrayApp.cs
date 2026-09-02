@@ -353,6 +353,12 @@ public sealed class TrayApp : ApplicationContext
             var bad = piece == null
                    || Hallucination.LooksInvented(piece, seconds)
                    || Hallucination.LooksDegenerate(piece)
+                   // Текста меньше, чем было речи: самый общий признак потери,
+                   // работает и на выдумках, которых нет ни в одном списке.
+                   || Hallucination.LooksThin(piece, seconds)
+                   // Иероглифы в русской диктовке: голосом их не произнести.
+                   || (!Hallucination.ScriptExempt.Contains(config.Language)
+                       && Hallucination.ContainsForeignScript(piece))
                    || string.IsNullOrWhiteSpace(cleaned);
 
             if (bad)
@@ -374,7 +380,20 @@ public sealed class TrayApp : ApplicationContext
 
         if (raw == null)
         {
-            if (current) SetState(State.Failed, whisper.LastError ?? "Распознать не вышло");
+            // Распознать не вышло, но речь была. Запись сохраняем: иначе
+            // минута надиктованного пропадает без следа, а вернуть её неоткуда.
+            if (config.KeepHistory) SaveHistory(wav, "");
+            Log.Write("распознать не вышло, запись сохранена в историю");
+            // Движок мог умереть: поднимаем заново, иначе все следующие
+            // диктовки уйдут в пустоту до перезапуска приложения.
+            if (whisper.Disconnected)
+            {
+                Log.Write("движок не отвечает, поднимаю заново");
+                whisper.Dispose();
+                whisper = new Whisper(config);
+                _ = BootWhisperAsync();
+            }
+            if (current) SetState(State.Failed, whisper.LastError ?? "Не распознал, запись в истории");
             return;
         }
 
@@ -383,6 +402,8 @@ public sealed class TrayApp : ApplicationContext
         Log.Write($"распознано: {text}");
         if (text.Length == 0)
         {
+            if (config.KeepHistory) SaveHistory(wav, "");
+            Log.Write("распознать не вышло, запись сохранена в историю");
             if (current) SetState(State.Idle);
             return;
         }
@@ -488,10 +509,13 @@ public sealed class TrayApp : ApplicationContext
             var removed = 0;
             foreach (var file in Directory.GetFiles(dir))
             {
+                // Расшифровки не трогаем никогда: место копеечное, а по ним
+                // видно, как со временем меняется речь.
+                if (Path.GetExtension(file).Equals(".txt", StringComparison.OrdinalIgnoreCase)) continue;
                 if (File.GetLastWriteTime(file) >= cutoff) continue;
                 try { File.Delete(file); removed++; } catch { }
             }
-            if (removed > 0) Log.Write($"история: удалено файлов {removed}");
+            if (removed > 0) Log.Write($"история: удалено записей {removed}, расшифровки оставлены");
         }
         catch { }
     }
